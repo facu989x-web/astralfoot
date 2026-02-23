@@ -86,6 +86,14 @@ def _build_metrics_mask(base_mask: np.ndarray, corrected_gray: np.ndarray) -> np
     return best
 
 
+def _build_heatmap_mask(base_mask: np.ndarray) -> np.ndarray:
+    """Build stable mask for heatmap rendering (favor continuity over strictness)."""
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    m = cv2.morphologyEx(base_mask, cv2.MORPH_CLOSE, kernel)
+    m = _largest_component(m)
+    return m
+
+
 def _quality_checks(
     length_px: float,
     forefoot_width_px: float,
@@ -249,14 +257,15 @@ def compute_metrics(
     if foot_hint == "auto":
         side = "left" if centroid[0] > (metric_mask.shape[1] / 2.0) else "right"
 
-    # Contact intensity map (relative):
-    # - higher scanner brightness inside footprint tends to indicate stronger contact,
-    # - blend with distance-to-border to avoid contour-only heat concentration.
+    # Contact intensity map (relative): computed on stable heatmap mask, independent
+    # from stricter metrics mask to avoid fragmented/spotty rendering.
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(original_gray)
     enhanced_f = enhanced.astype(np.float32)
 
-    inside_gray = enhanced_f[metric_mask > 0]
+    heatmap_mask = _build_heatmap_mask(mask)
+
+    inside_gray = enhanced_f[heatmap_mask > 0]
     if inside_gray.size > 0:
         lo = float(np.percentile(inside_gray, 2))
         hi = float(np.percentile(inside_gray, 98))
@@ -267,18 +276,18 @@ def compute_metrics(
     else:
         intensity_rel = np.zeros_like(enhanced_f, dtype=np.float32)
 
-    dist = cv2.distanceTransform((metric_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    dist = cv2.distanceTransform((heatmap_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
     if float(np.max(dist)) > 0:
         dist_rel = dist / float(np.max(dist))
     else:
         dist_rel = np.zeros_like(dist, dtype=np.float32)
 
     # Blend brightness-driven contact with center weighting to avoid black foot interiors.
-    contact_rel = (0.75 * intensity_rel) + (0.25 * dist_rel.astype(np.float32))
-    contact_rel = cv2.GaussianBlur(contact_rel, (0, 0), sigmaX=1.6, sigmaY=1.6)
-    contact_rel *= (metric_mask > 0).astype(np.float32)
+    contact_rel = (0.9 * intensity_rel) + (0.1 * dist_rel.astype(np.float32))
+    contact_rel = cv2.GaussianBlur(contact_rel, (0, 0), sigmaX=1.3, sigmaY=1.3)
+    contact_rel *= (heatmap_mask > 0).astype(np.float32)
 
-    inside = contact_rel[metric_mask > 0]
+    inside = contact_rel[heatmap_mask > 0]
     if inside.size > 0:
         lo = float(np.percentile(inside, 1))
         hi = float(np.percentile(inside, 99))
@@ -286,7 +295,7 @@ def compute_metrics(
             contact_rel = np.clip((contact_rel - lo) / (hi - lo), 0.0, 1.0)
 
         # Keep interior visible in heatmap while preserving dynamic contrast.
-        contact_rel[metric_mask > 0] = 0.12 + (0.88 * contact_rel[metric_mask > 0])
+        contact_rel[heatmap_mask > 0] = 0.08 + (0.92 * contact_rel[heatmap_mask > 0])
 
     quality_status, quality_warnings = _quality_checks(
         length_px,
