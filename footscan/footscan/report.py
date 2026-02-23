@@ -15,6 +15,7 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 def _metric_rows(results: Dict) -> List[Tuple[str, str]]:
     m = results["metrics"]
     rows = [
+        ("Calidad automática", m.get("quality_status", "n/a")),
         ("Largo total", f"{m['length_px']:.2f} px" + (f" | {m['length_mm']:.2f} mm" if m.get("length_mm") else "")),
         (
             "Ancho antepié",
@@ -39,6 +40,9 @@ def _metric_rows(results: Dict) -> List[Tuple[str, str]]:
         ),
         ("Ángulo eje principal", f"{m['principal_axis_angle_deg']:.2f}°"),
     ]
+    warns = m.get("quality_warnings") or []
+    if warns:
+        rows.append(("Avisos calidad", " | ".join(warns)))
     return rows
 
 

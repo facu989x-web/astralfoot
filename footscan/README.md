@@ -27,6 +27,7 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
   - Centroide.
   - Eje principal y ángulo.
 - Mapa de intensidad de contacto relativo (ponderado para evitar artefactos de borde y conservar detalle dentro de la planta).
+- Control automático de calidad en métricas (banderas `quality_status` y `quality_warnings` en JSON/PDF).
 
 ## Estructura
 

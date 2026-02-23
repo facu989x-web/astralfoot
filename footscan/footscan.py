@@ -191,6 +191,8 @@ def _analyze_one(
             "forefoot_line_yx": metrics.forefoot_line_yx,
             "heel_line_yx": metrics.heel_line_yx,
             "midfoot_line_yx": metrics.midfoot_line_yx,
+            "quality_status": metrics.quality_status,
+            "quality_warnings": list(metrics.quality_warnings),
         },
     }
     if resize_meta is not None:

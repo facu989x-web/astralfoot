@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -33,6 +33,91 @@ class FootMetrics:
     heel_width_mm: Optional[float] = None
     midfoot_min_width_mm: Optional[float] = None
     contact_area_mm2: Optional[float] = None
+    quality_status: str = "ok"
+    quality_warnings: Tuple[str, ...] = ()
+
+
+def _largest_component(binary: np.ndarray) -> np.ndarray:
+    """Keep only largest connected component in binary uint8 image."""
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    if num_labels <= 1:
+        return np.zeros_like(binary)
+    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    out = np.zeros_like(binary)
+    out[labels == idx] = 255
+    return out
+
+
+def _build_metrics_mask(base_mask: np.ndarray, corrected_gray: np.ndarray) -> np.ndarray:
+    """Build stricter mask for geometry metrics to avoid overfilled silhouettes."""
+    inside = corrected_gray[base_mask > 0]
+    if inside.size < 100:
+        return base_mask
+
+    p35 = float(np.percentile(inside, 35))
+    p65 = float(np.percentile(inside, 65))
+
+    dark_cand = np.zeros_like(base_mask)
+    bright_cand = np.zeros_like(base_mask)
+    dark_cand[(base_mask > 0) & (corrected_gray <= p65)] = 255
+    bright_cand[(base_mask > 0) & (corrected_gray >= p35)] = 255
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    candidates = []
+    for cand in (dark_cand, bright_cand):
+        c = cv2.morphologyEx(cand, cv2.MORPH_OPEN, kernel)
+        c = cv2.morphologyEx(c, cv2.MORPH_CLOSE, kernel)
+        c = _largest_component(c)
+        candidates.append(c)
+
+    base_area = float(np.count_nonzero(base_mask))
+    best = base_mask
+    best_score = -1.0
+    for c in candidates:
+        area = float(np.count_nonzero(c))
+        if area <= 0:
+            continue
+        area_ratio = area / max(base_area, 1.0)
+        # prefer masks that keep most plantar region but avoid full overfill.
+        score = 1.0 - min(abs(area_ratio - 0.7), 0.7) / 0.7
+        if 0.35 <= area_ratio <= 0.98 and score > best_score:
+            best = c
+            best_score = score
+    return best
+
+
+def _quality_checks(
+    length_px: float,
+    forefoot_width_px: float,
+    heel_width_px: float,
+    midfoot_min_width_px: float,
+    arch_index: float,
+    area_px: float,
+    ys: np.ndarray,
+    xs: np.ndarray,
+) -> Tuple[str, Tuple[str, ...]]:
+    warnings: List[str] = []
+
+    if length_px <= 0 or forefoot_width_px <= 0 or heel_width_px <= 0:
+        warnings.append("Medidas geométricas inválidas (<= 0).")
+
+    tol = max(8.0, 0.015 * max(length_px, 1.0))
+    if abs(forefoot_width_px - heel_width_px) < tol and abs(midfoot_min_width_px - forefoot_width_px) < tol:
+        warnings.append("Anchos casi idénticos en antepié/talón/mediopié; posible sobre-segmentación.")
+
+    if arch_index >= 95.0 or arch_index <= 5.0:
+        warnings.append("Índice de arco extremo; revisar máscara y calidad de captura.")
+
+    if xs.size > 10 and ys.size > 10:
+        bbox_area = float((np.max(xs) - np.min(xs) + 1) * (np.max(ys) - np.min(ys) + 1))
+        fill_ratio = area_px / max(bbox_area, 1.0)
+        if fill_ratio > 0.88:
+            warnings.append("Huella muy compacta respecto al bounding box; posible relleno excesivo.")
+        if fill_ratio < 0.18:
+            warnings.append("Huella muy dispersa/fragmentada; posible sub-segmentación.")
+
+    status = "ok" if not warnings else "warn"
+    return status, tuple(warnings)
 
 
 def _pca_axis(points_xy: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -101,7 +186,8 @@ def compute_metrics(
     dpi: Optional[float] = None,
 ) -> Tuple[FootMetrics, np.ndarray]:
     """Compute geometric and contact-intensity metrics from segmented footprint."""
-    ys, xs = np.where(mask > 0)
+    metric_mask = _build_metrics_mask(mask, corrected_gray)
+    ys, xs = np.where(metric_mask > 0)
     if xs.size < 50:
         raise ValueError("Máscara insuficiente para calcular métricas.")
 
@@ -143,8 +229,8 @@ def compute_metrics(
     else:
         arch_index = 0.0
 
-    area_px = float(np.count_nonzero(mask))
-    moments = cv2.moments(mask)
+    area_px = float(np.count_nonzero(metric_mask))
+    moments = cv2.moments(metric_mask)
     if abs(moments["m00"]) < 1e-8:
         centroid = (float(centroid_xy[0]), float(centroid_xy[1]))
     else:
@@ -161,7 +247,7 @@ def compute_metrics(
 
     side = foot_hint
     if foot_hint == "auto":
-        side = "left" if centroid[0] > (mask.shape[1] / 2.0) else "right"
+        side = "left" if centroid[0] > (metric_mask.shape[1] / 2.0) else "right"
 
     # Contact intensity map (relative):
     # - higher scanner brightness inside footprint tends to indicate stronger contact,
@@ -170,7 +256,7 @@ def compute_metrics(
     enhanced = clahe.apply(original_gray)
     enhanced_f = enhanced.astype(np.float32)
 
-    inside_gray = enhanced_f[mask > 0]
+    inside_gray = enhanced_f[metric_mask > 0]
     if inside_gray.size > 0:
         lo = float(np.percentile(inside_gray, 2))
         hi = float(np.percentile(inside_gray, 98))
@@ -181,7 +267,7 @@ def compute_metrics(
     else:
         intensity_rel = np.zeros_like(enhanced_f, dtype=np.float32)
 
-    dist = cv2.distanceTransform((mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    dist = cv2.distanceTransform((metric_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
     if float(np.max(dist)) > 0:
         dist_rel = dist / float(np.max(dist))
     else:
@@ -190,9 +276,9 @@ def compute_metrics(
     # Blend brightness-driven contact with center weighting to avoid black foot interiors.
     contact_rel = (0.75 * intensity_rel) + (0.25 * dist_rel.astype(np.float32))
     contact_rel = cv2.GaussianBlur(contact_rel, (0, 0), sigmaX=1.6, sigmaY=1.6)
-    contact_rel *= (mask > 0).astype(np.float32)
+    contact_rel *= (metric_mask > 0).astype(np.float32)
 
-    inside = contact_rel[mask > 0]
+    inside = contact_rel[metric_mask > 0]
     if inside.size > 0:
         lo = float(np.percentile(inside, 1))
         hi = float(np.percentile(inside, 99))
@@ -200,7 +286,18 @@ def compute_metrics(
             contact_rel = np.clip((contact_rel - lo) / (hi - lo), 0.0, 1.0)
 
         # Keep interior visible in heatmap while preserving dynamic contrast.
-        contact_rel[mask > 0] = 0.12 + (0.88 * contact_rel[mask > 0])
+        contact_rel[metric_mask > 0] = 0.12 + (0.88 * contact_rel[metric_mask > 0])
+
+    quality_status, quality_warnings = _quality_checks(
+        length_px,
+        forefoot_width_px,
+        heel_width_px,
+        midfoot_min_width_px,
+        float(arch_index),
+        area_px,
+        ys,
+        xs,
+    )
 
     metrics = FootMetrics(
         foot_side=side,
@@ -221,5 +318,7 @@ def compute_metrics(
         heel_width_mm=pixels_to_mm(heel_width_px, dpi),
         midfoot_min_width_mm=pixels_to_mm(midfoot_min_width_px, dpi),
         contact_area_mm2=area_px_to_mm2(area_px, dpi),
+        quality_status=quality_status,
+        quality_warnings=quality_warnings,
     )
     return metrics, contact_rel
