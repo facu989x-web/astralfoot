@@ -96,7 +96,7 @@ Para una entrada `dummy_foot.png` se generan:
 - `outputs/dummy_foot_heatmap.png`
 - `outputs/dummy_foot_results.json`
 - `outputs/dummy_foot_report.pdf`
-- además, con `--debug`, imágenes intermedias del pipeline.
+- además, con `--debug`, imágenes intermedias del pipeline, incluyendo `debug_full_with_roi_box` y `debug_roi_mask_overlay` para validar el recorte automático.
 
 ## Notas de adquisición (WIA/TWAIN)
 

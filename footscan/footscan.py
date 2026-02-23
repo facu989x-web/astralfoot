@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import cv2
+import numpy as np
 
 from footscan.acquire import acquire_from_file, acquire_from_scanner
 from footscan.metrics import compute_metrics
@@ -47,6 +48,25 @@ def _draw_overlay(image_bgr, contour, metrics) -> Any:
         y += 24
 
     return overlay
+
+
+def _draw_bbox(image_bgr, crop_meta: Dict[str, Any]) -> Any:
+    """Draw ROI bounding rectangle over full image for debug."""
+    out = image_bgr.copy()
+    x, y, w, h = int(crop_meta["x"]), int(crop_meta["y"]), int(crop_meta["w"]), int(crop_meta["h"])
+    cv2.rectangle(out, (x, y), (x + w, y + h), (0, 255, 255), 3)
+    cv2.putText(out, "ROI crop", (x + 8, max(24, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
+    return out
+
+
+def _draw_mask_overlay(image_bgr, mask) -> Any:
+    """Overlay mask in semi-transparent color for debug inspection."""
+    out = image_bgr.copy()
+    color_layer = np.zeros_like(out)
+    color_layer[:, :] = (0, 220, 255)
+    m = mask > 0
+    out[m] = cv2.addWeighted(out[m], 0.45, color_layer[m], 0.55, 0)
+    return out
 
 
 def _maybe_resize_for_processing(
@@ -181,7 +201,9 @@ def _analyze_one(
     create_report_pdf(pdf_path, input_path, overlay_path, heatmap_path, results)
 
     if debug:
+        save_image(output_dir / f"{stem}_debug_full_with_roi_box.png", _draw_bbox(image, crop_meta))
         save_image(output_dir / f"{stem}_debug_roi_crop.png", image_roi)
+        save_image(output_dir / f"{stem}_debug_roi_mask_overlay.png", _draw_mask_overlay(image_roi, seg.mask))
         for key, img in prep.items():
             save_image(output_dir / f"{stem}_debug_pre_{key}.png", img)
         for key, img in seg.debug_images.items():
