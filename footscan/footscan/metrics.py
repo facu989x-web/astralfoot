@@ -164,6 +164,38 @@ def _line_width(points_lw: np.ndarray, mask_l: np.ndarray) -> Tuple[float, float
     return float(widths[max_idx]), float(widths[min_idx]), float(centers[max_idx]), (float(centers[min_idx]), float(centers[max_idx]))
 
 
+def _section_width_at_l(
+    l_norm: np.ndarray,
+    w: np.ndarray,
+    l_start: float,
+    l_end: float,
+    mode: str,
+) -> Tuple[float, float]:
+    """Compute width extrema inside a longitudinal section.
+
+    Returns (width_px, representative_l).
+    """
+    bins = np.linspace(l_start, l_end, 40)
+    widths = []
+    centers = []
+    for i in range(len(bins) - 1):
+        lo, hi = bins[i], bins[i + 1]
+        m = (l_norm >= lo) & (l_norm < hi)
+        if np.any(m):
+            widths.append(float(np.max(w[m]) - np.min(w[m])))
+            centers.append(float((lo + hi) * 0.5))
+
+    if not widths:
+        return 0.0, float((l_start + l_end) * 0.5)
+
+    arr = np.array(widths, dtype=np.float32)
+    if mode == "max":
+        idx = int(np.argmax(arr))
+    else:
+        idx = int(np.argmin(arr))
+    return float(arr[idx]), centers[idx]
+
+
 def _line_endpoints_from_l(
     points_lw: np.ndarray,
     points_xy: np.ndarray,
@@ -230,7 +262,8 @@ def compute_metrics(
     midfoot_min_width_px = float(np.max(w[mid_m]) - np.min(w[mid_m])) if np.any(mid_m) else 0.0
 
     points_lw = np.column_stack([l_norm.astype(np.float32), w.astype(np.float32)])
-    fore_max, mid_min, fore_l, (mid_l, _) = _line_width(points_lw[fore_m | mid_m | heel_m], l_norm)
+    fore_max, fore_l = _section_width_at_l(l_norm, w, 2.0 / 3.0, 0.98, mode="max")
+    mid_min, mid_l = _section_width_at_l(l_norm, w, 0.34, 0.66, mode="min")
 
     if fore_max > 0:
         arch_index = (mid_min / fore_max) * 100.0
