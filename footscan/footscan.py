@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -127,6 +128,7 @@ def _analyze_one(
     dpi: Optional[int],
     foot: str,
     debug: bool,
+    profile_path: Optional[Path] = None,
 ) -> Dict[str, Path]:
     ensure_dir(output_dir)
 
@@ -146,6 +148,27 @@ def _analyze_one(
         foot_hint=foot,
         dpi=effective_dpi,
     )
+
+    calibration_meta: Optional[Dict[str, Any]] = None
+    if profile_path is not None:
+        with profile_path.open("r", encoding="utf-8") as f:
+            profile = json.load(f)
+
+        mm_per_px = profile.get("mm_per_px")
+        if mm_per_px is not None:
+            mm_per_px = float(mm_per_px)
+            metrics.length_mm = metrics.length_px * mm_per_px
+            metrics.forefoot_width_mm = metrics.forefoot_width_px * mm_per_px
+            metrics.heel_width_mm = metrics.heel_width_px * mm_per_px
+            metrics.midfoot_min_width_mm = metrics.midfoot_min_width_px * mm_per_px
+            metrics.contact_area_mm2 = metrics.contact_area_px2 * (mm_per_px * mm_per_px)
+
+            calibration_meta = {
+                "profile_path": str(profile_path),
+                "profile_name": profile.get("name", profile_path.stem),
+                "mm_per_px": mm_per_px,
+                "equivalent_dpi": (25.4 / mm_per_px) if mm_per_px > 0 else None,
+            }
 
     heatmap_u8 = (contact_rel * 255.0).clip(0, 255).astype("uint8")
     heatmap = cv2.applyColorMap(heatmap_u8, cv2.COLORMAP_JET)
@@ -198,6 +221,8 @@ def _analyze_one(
     if resize_meta is not None:
         results["metadata"]["resize"] = resize_meta
     results["metadata"]["roi_crop"] = crop_meta
+    if calibration_meta is not None:
+        results["metadata"]["calibration"] = calibration_meta
 
     save_json(json_path, results)
     create_report_pdf(pdf_path, input_path, overlay_path, heatmap_path, results)
@@ -234,6 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_p.add_argument("--output_dir", type=str, default="outputs")
     analyze_p.add_argument("--dpi", type=int, default=300)
     analyze_p.add_argument("--foot", type=str, default="auto", choices=["left", "right", "auto"])
+    analyze_p.add_argument("--profile", type=str, default=None, help="Perfil de calibración JSON (mm_per_px).")
     analyze_p.add_argument("--debug", action="store_true")
 
     batch_p = sub.add_parser("batch", help="Procesa todas las imágenes de un folder.")
@@ -241,9 +267,59 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--output_dir", type=str, default="outputs")
     batch_p.add_argument("--dpi", type=int, default=300)
     batch_p.add_argument("--foot", type=str, default="auto", choices=["left", "right", "auto"])
+    batch_p.add_argument("--profile", type=str, default=None, help="Perfil de calibración JSON (mm_per_px).")
     batch_p.add_argument("--debug", action="store_true")
 
+    cal_p = sub.add_parser("calibrate", help="Crea perfil de calibración mm/px usando largo real del pie.")
+    cal_p.add_argument("--input", type=str, required=True)
+    cal_p.add_argument("--ref_mm", type=float, required=True, help="Largo real del pie en mm (ej: 225).")
+    cal_p.add_argument("--output_profile", type=str, default="outputs/scanner_profile.json")
+    cal_p.add_argument("--dpi", type=int, default=300)
+    cal_p.add_argument("--name", type=str, default="default_scanner")
+
     return parser
+
+
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    try:
+        input_path = Path(args.input)
+        image_raw = load_image_any(input_path)
+        image, _, resize_meta = _maybe_resize_for_processing(image_raw, args.dpi)
+
+        prep = preprocess_image(image)
+        seg = segment_footprint(prep["denoised"])
+        image_roi, crop_meta = _crop_to_bbox(image, seg.bbox)
+
+        prep = preprocess_image(image_roi)
+        seg = segment_footprint(prep["denoised"])
+        metrics, _ = compute_metrics(seg.mask, prep["corrected"], prep["gray"], foot_hint="auto", dpi=None)
+
+        if args.ref_mm <= 0 or metrics.length_px <= 0:
+            raise ValueError("No se pudo calcular calibración: largo de referencia o largo en px inválido.")
+
+        mm_per_px = float(args.ref_mm) / float(metrics.length_px)
+        profile = {
+            "name": args.name,
+            "timestamp": timestamp_iso(),
+            "input_file": str(input_path),
+            "reference_length_mm": float(args.ref_mm),
+            "measured_length_px": float(metrics.length_px),
+            "mm_per_px": mm_per_px,
+            "equivalent_dpi": (25.4 / mm_per_px) if mm_per_px > 0 else None,
+            "resize": resize_meta,
+            "roi_crop": crop_meta,
+        }
+
+        output_profile = Path(args.output_profile)
+        ensure_dir(output_profile.parent)
+        save_json(output_profile, profile)
+        print(f"Perfil guardado: {output_profile}")
+        print(f"  mm_per_px: {mm_per_px:.6f}")
+        print(f"  equivalent_dpi: {profile['equivalent_dpi']:.2f}")
+        return 0
+    except Exception as e:
+        print(f"Error calibrate: {e}")
+        return 1
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
@@ -263,7 +339,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def cmd_analyze(args: argparse.Namespace) -> int:
     try:
-        outputs = _analyze_one(Path(args.input), Path(args.output_dir), args.dpi, args.foot, args.debug)
+        outputs = _analyze_one(
+            Path(args.input),
+            Path(args.output_dir),
+            args.dpi,
+            args.foot,
+            args.debug,
+            Path(args.profile) if args.profile else None,
+        )
         print("Análisis completado:")
         for k, v in outputs.items():
             print(f"  {k}: {v}")
@@ -291,7 +374,14 @@ def cmd_batch(args: argparse.Namespace) -> int:
     ok = 0
     for image_path in files:
         try:
-            _analyze_one(image_path, Path(args.output_dir), args.dpi, args.foot, args.debug)
+            _analyze_one(
+                image_path,
+                Path(args.output_dir),
+                args.dpi,
+                args.foot,
+                args.debug,
+                Path(args.profile) if args.profile else None,
+            )
             ok += 1
             print(f"OK: {image_path}")
         except Exception as e:
@@ -311,6 +401,8 @@ def main() -> int:
         return cmd_analyze(args)
     if args.command == "batch":
         return cmd_batch(args)
+    if args.command == "calibrate":
+        return cmd_calibrate(args)
 
     parser.print_help()
     return 1

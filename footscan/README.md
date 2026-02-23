@@ -10,6 +10,7 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
   - `scan`: intenta adquirir imagen del escáner (WIA/TWAIN) y guarda raw.
   - `analyze`: procesa una imagen y genera `overlay.png`, `mask.png`, `heatmap.png`, `results.json`, `report.pdf`.
   - `batch`: procesa una carpeta completa.
+  - `calibrate`: crea perfil de calibración `mm_per_px` usando largo real conocido.
 - Pipeline de visión por computadora:
   1. Escala de grises.
   2. Flat-field correction (normalización de iluminación).
@@ -82,10 +83,24 @@ python footscan.py scan --input "samples/dummy_foot.png" --dpi 300 --output_dir 
 python footscan.py analyze --input "samples/dummy_foot.png" --output_dir outputs --dpi 300 --foot auto --debug
 ```
 
+Con perfil de calibración (recomendado para precisión real por escáner):
+
+```bash
+python footscan.py analyze --input "samples/dummy_foot.png" --output_dir outputs --profile "outputs/scanner_profile.json" --foot auto --debug
+```
+
 ### 3) Batch por carpeta
 
 ```bash
 python footscan.py batch --input "samples" --output_dir outputs --dpi 300 --foot auto
+```
+
+### 4) Calibración de escala (mm/px)
+
+Ejemplo: si el largo real del pie medido externamente es 225 mm.
+
+```bash
+python footscan.py calibrate --input "samples/dummy_foot.png" --ref_mm 225 --output_profile "outputs/scanner_profile.json" --name "scanner_consultorio"
 ```
 
 ## Salidas
