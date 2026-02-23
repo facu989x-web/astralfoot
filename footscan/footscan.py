@@ -277,6 +277,14 @@ def build_parser() -> argparse.ArgumentParser:
     cal_p.add_argument("--dpi", type=int, default=300)
     cal_p.add_argument("--name", type=str, default="default_scanner")
 
+    cal_m_p = sub.add_parser("calibrate-manual", help="Crea perfil de calibración usando y_heel/y_toe medidos manualmente.")
+    cal_m_p.add_argument("--y_heel", type=float, required=True, help="Coordenada Y del talón en px (imagen completa).")
+    cal_m_p.add_argument("--y_toe", type=float, required=True, help="Coordenada Y del dedo más largo en px (imagen completa).")
+    cal_m_p.add_argument("--ref_mm", type=float, required=True, help="Largo real del pie en mm (ej: 225).")
+    cal_m_p.add_argument("--output_profile", type=str, default="outputs/scanner_profile_manual.json")
+    cal_m_p.add_argument("--name", type=str, default="manual_scanner")
+    cal_m_p.add_argument("--input", type=str, default=None, help="Ruta de imagen usada como referencia manual (opcional).")
+
     return parser
 
 
@@ -319,6 +327,43 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
         return 0
     except Exception as e:
         print(f"Error calibrate: {e}")
+        return 1
+
+
+def cmd_calibrate_manual(args: argparse.Namespace) -> int:
+    """Build calibration profile from manually observed heel/toe pixel coordinates."""
+    try:
+        if args.ref_mm <= 0:
+            raise ValueError("--ref_mm debe ser > 0.")
+
+        length_px = abs(float(args.y_toe) - float(args.y_heel))
+        if length_px <= 1:
+            raise ValueError("La distancia en píxeles entre talón y dedo es inválida.")
+
+        mm_per_px = float(args.ref_mm) / length_px
+        profile = {
+            "name": args.name,
+            "timestamp": timestamp_iso(),
+            "mode": "manual_y_points",
+            "input_file": str(args.input) if args.input else None,
+            "reference_length_mm": float(args.ref_mm),
+            "manual_y_heel_px": float(args.y_heel),
+            "manual_y_toe_px": float(args.y_toe),
+            "measured_length_px": float(length_px),
+            "mm_per_px": mm_per_px,
+            "equivalent_dpi": (25.4 / mm_per_px) if mm_per_px > 0 else None,
+        }
+
+        output_profile = Path(args.output_profile)
+        ensure_dir(output_profile.parent)
+        save_json(output_profile, profile)
+        print(f"Perfil manual guardado: {output_profile}")
+        print(f"  length_px: {length_px:.2f}")
+        print(f"  mm_per_px: {mm_per_px:.6f}")
+        print(f"  equivalent_dpi: {profile['equivalent_dpi']:.2f}")
+        return 0
+    except Exception as e:
+        print(f"Error calibrate-manual: {e}")
         return 1
 
 
@@ -403,6 +448,8 @@ def main() -> int:
         return cmd_batch(args)
     if args.command == "calibrate":
         return cmd_calibrate(args)
+    if args.command == "calibrate-manual":
+        return cmd_calibrate_manual(args)
 
     parser.print_help()
     return 1

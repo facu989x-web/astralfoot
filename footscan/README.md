@@ -103,6 +103,14 @@ Ejemplo: si el largo real del pie medido externamente es 225 mm.
 python footscan.py calibrate --input "samples/dummy_foot.png" --ref_mm 225 --output_profile "outputs/scanner_profile.json" --name "scanner_consultorio"
 ```
 
+### 5) Calibración manual por puntos Y (talón/dedo)
+
+Si mediste manualmente que el talón está en `y=800 px` y el dedo en `y=6050 px`:
+
+```bash
+python footscan.py calibrate-manual --y_heel 800 --y_toe 6050 --ref_mm 225 --output_profile "outputs/scanner_profile_manual.json" --name "scanner_consultorio_manual" --input "samples/002.png"
+```
+
 ## Salidas
 
 Para una entrada `dummy_foot.png` se generan:
