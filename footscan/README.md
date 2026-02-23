@@ -16,7 +16,8 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
   3. Threshold robusto (Otsu + fallback adaptativo).
   4. Morfología open/close.
   5. Componente conectado más grande.
-  6. Contorno principal y métricas.
+  6. Recorte automático al ROI del pie para suprimir fondo irrelevante.
+  7. Contorno principal y métricas.
 - Métricas (px y mm si hay DPI):
   - Largo total.
   - Ancho de antepié.
@@ -113,3 +114,4 @@ Para una entrada `dummy_foot.png` se generan:
 - Imágenes muy grandes (ej. 1200 DPI) se redimensionan automáticamente para evitar problemas de memoria, conservando trazabilidad de escala en el JSON.
 - El heatmap es relativo a la intensidad de la huella escaneada (más claro en el escaneo tiende a mayor contacto relativo), no una medición de presión certificada.
 - La máscara de huella se rellena sobre el contorno principal para evitar "huellas huecas" (contorno con interior negro) que distorsionan el heatmap y el cálculo de área.
+- Se aplica recorte automático al bounding box del pie (con margen) para reducir ruido por fondo, ropa o zonas escaneadas sin contacto.

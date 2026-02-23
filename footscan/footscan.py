@@ -79,6 +79,28 @@ def _maybe_resize_for_processing(
     return resized, effective_dpi, meta
 
 
+def _crop_to_bbox(image_bgr, bbox: Tuple[int, int, int, int], margin_ratio: float = 0.12, min_margin_px: int = 24):
+    """Crop image around bbox with a margin to suppress irrelevant background."""
+    x, y, w, h = bbox
+    ih, iw = image_bgr.shape[:2]
+
+    margin = int(max(min_margin_px, round(max(w, h) * margin_ratio)))
+    x0 = max(0, x - margin)
+    y0 = max(0, y - margin)
+    x1 = min(iw, x + w + margin)
+    y1 = min(ih, y + h + margin)
+
+    cropped = image_bgr[y0:y1, x0:x1].copy()
+    crop_meta = {
+        "x": int(x0),
+        "y": int(y0),
+        "w": int(x1 - x0),
+        "h": int(y1 - y0),
+        "margin_px": int(margin),
+    }
+    return cropped, crop_meta
+
+
 def _analyze_one(
     input_path: Path,
     output_dir: Path,
@@ -93,6 +115,10 @@ def _analyze_one(
 
     prep = preprocess_image(image)
     seg = segment_footprint(prep["denoised"])
+
+    image_roi, crop_meta = _crop_to_bbox(image, seg.bbox)
+    prep = preprocess_image(image_roi)
+    seg = segment_footprint(prep["denoised"])
     metrics, contact_rel = compute_metrics(
         seg.mask,
         prep["corrected"],
@@ -105,7 +131,7 @@ def _analyze_one(
     heatmap = cv2.applyColorMap(heatmap_u8, cv2.COLORMAP_JET)
     heatmap[seg.mask == 0] = (0, 0, 0)
 
-    overlay = _draw_overlay(image, seg.contour, metrics)
+    overlay = _draw_overlay(image_roi, seg.contour, metrics)
 
     stem = input_path.stem
     overlay_path = output_dir / f"{stem}_overlay.png"
@@ -149,11 +175,13 @@ def _analyze_one(
     }
     if resize_meta is not None:
         results["metadata"]["resize"] = resize_meta
+    results["metadata"]["roi_crop"] = crop_meta
 
     save_json(json_path, results)
     create_report_pdf(pdf_path, input_path, overlay_path, heatmap_path, results)
 
     if debug:
+        save_image(output_dir / f"{stem}_debug_roi_crop.png", image_roi)
         for key, img in prep.items():
             save_image(output_dir / f"{stem}_debug_pre_{key}.png", img)
         for key, img in seg.debug_images.items():
