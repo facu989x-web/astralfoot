@@ -112,3 +112,4 @@ Para una entrada `dummy_foot.png` se generan:
 - `foot auto` usa heurística simple y puede requerir ajuste manual en algunos casos.
 - Imágenes muy grandes (ej. 1200 DPI) se redimensionan automáticamente para evitar problemas de memoria, conservando trazabilidad de escala en el JSON.
 - El heatmap es relativo a la intensidad de la huella escaneada (más claro en el escaneo tiende a mayor contacto relativo), no una medición de presión certificada.
+- La máscara de huella se rellena sobre el contorno principal para evitar "huellas huecas" (contorno con interior negro) que distorsionan el heatmap y el cálculo de área.

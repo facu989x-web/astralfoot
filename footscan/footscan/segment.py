@@ -74,10 +74,17 @@ def segment_footprint(preprocessed_gray: np.ndarray) -> SegmentationResult:
         raise ValueError("No se pudo segmentar la huella. Probá con otra imagen o mejor contraste.")
 
     contour = max(contours, key=cv2.contourArea)
+
+    # Fill principal contour to get a solid plantar contact region.
+    # Some scans keep strong borders but weak interior texture; filling avoids
+    # hollow masks that later produce contour-only heatmaps.
+    filled_mask = np.zeros_like(largest)
+    cv2.drawContours(filled_mask, [contour], -1, 255, thickness=-1)
+
     x, y, w, h = cv2.boundingRect(contour)
 
     return SegmentationResult(
-        mask=largest,
+        mask=filled_mask,
         contour=contour,
         bbox=(x, y, w, h),
         debug_images={
@@ -86,5 +93,6 @@ def segment_footprint(preprocessed_gray: np.ndarray) -> SegmentationResult:
             "adaptive_inv": adaptive_inv,
             "opened": opened,
             "closed": closed,
+            "filled": filled_mask,
         },
     )
