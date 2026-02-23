@@ -163,28 +163,44 @@ def compute_metrics(
     if foot_hint == "auto":
         side = "left" if centroid[0] > (mask.shape[1] / 2.0) else "right"
 
-    # Contact intensity map (relative): use original gray texture and suppress contour-only artifacts.
+    # Contact intensity map (relative):
+    # - higher scanner brightness inside footprint tends to indicate stronger contact,
+    # - blend with distance-to-border to avoid contour-only heat concentration.
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(original_gray)
-    normalized = cv2.normalize(enhanced.astype(np.float32), None, 0, 1.0, cv2.NORM_MINMAX)
-    raw_contact = (1.0 - normalized) * (mask > 0).astype(np.float32)
+    enhanced_f = enhanced.astype(np.float32)
 
-    erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-    core_mask = cv2.erode(mask, erode_kernel)
-    core = (core_mask > 0).astype(np.float32)
-    border = ((mask > 0).astype(np.float32) - core).clip(0, 1)
+    inside_gray = enhanced_f[mask > 0]
+    if inside_gray.size > 0:
+        lo = float(np.percentile(inside_gray, 2))
+        hi = float(np.percentile(inside_gray, 98))
+        if hi > lo:
+            intensity_rel = np.clip((enhanced_f - lo) / (hi - lo), 0.0, 1.0)
+        else:
+            intensity_rel = np.zeros_like(enhanced_f, dtype=np.float32)
+    else:
+        intensity_rel = np.zeros_like(enhanced_f, dtype=np.float32)
 
-    # Weight center pixels more than edges to avoid red contour rings.
-    contact_rel = raw_contact * (core + 0.45 * border)
-    contact_rel = cv2.GaussianBlur(contact_rel, (0, 0), sigmaX=2.0, sigmaY=2.0)
+    dist = cv2.distanceTransform((mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    if float(np.max(dist)) > 0:
+        dist_rel = dist / float(np.max(dist))
+    else:
+        dist_rel = np.zeros_like(dist, dtype=np.float32)
+
+    # Blend brightness-driven contact with center weighting to avoid black foot interiors.
+    contact_rel = (0.75 * intensity_rel) + (0.25 * dist_rel.astype(np.float32))
+    contact_rel = cv2.GaussianBlur(contact_rel, (0, 0), sigmaX=1.6, sigmaY=1.6)
+    contact_rel *= (mask > 0).astype(np.float32)
 
     inside = contact_rel[mask > 0]
     if inside.size > 0:
-        lo = float(np.percentile(inside, 5))
-        hi = float(np.percentile(inside, 98))
+        lo = float(np.percentile(inside, 1))
+        hi = float(np.percentile(inside, 99))
         if hi > lo:
             contact_rel = np.clip((contact_rel - lo) / (hi - lo), 0.0, 1.0)
-    contact_rel *= (mask > 0).astype(np.float32)
+
+        # Keep interior visible in heatmap while preserving dynamic contrast.
+        contact_rel[mask > 0] = 0.12 + (0.88 * contact_rel[mask > 0])
 
     metrics = FootMetrics(
         foot_side=side,

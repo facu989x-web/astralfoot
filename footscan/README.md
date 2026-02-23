@@ -25,7 +25,7 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
   - Índice de arco (Chippaux–Smirak).
   - Centroide.
   - Eje principal y ángulo.
-  - Mapa de intensidad de contacto relativo (ponderado para evitar artefactos de borde).
+- Mapa de intensidad de contacto relativo (ponderado para evitar artefactos de borde y conservar detalle dentro de la planta).
 
 ## Estructura
 
@@ -111,3 +111,4 @@ Para una entrada `dummy_foot.png` se generan:
 - Sin calibración clínica ni estimación de presión real.
 - `foot auto` usa heurística simple y puede requerir ajuste manual en algunos casos.
 - Imágenes muy grandes (ej. 1200 DPI) se redimensionan automáticamente para evitar problemas de memoria, conservando trazabilidad de escala en el JSON.
+- El heatmap es relativo a la intensidad de la huella escaneada (más claro en el escaneo tiende a mayor contacto relativo), no una medición de presión certificada.
