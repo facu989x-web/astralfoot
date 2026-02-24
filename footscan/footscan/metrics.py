@@ -116,6 +116,9 @@ def _quality_checks(
     if arch_index >= 95.0 or arch_index <= 5.0:
         warnings.append("Índice de arco extremo; revisar máscara y calidad de captura.")
 
+    if midfoot_min_width_px > (forefoot_width_px * 0.98):
+        warnings.append("Mediopié igual o más ancho que antepié; posible contaminación lateral en máscara.")
+
     if xs.size > 10 and ys.size > 10:
         bbox_area = float((np.max(xs) - np.min(xs) + 1) * (np.max(ys) - np.min(ys) + 1))
         fill_ratio = area_px / max(bbox_area, 1.0)
@@ -182,7 +185,9 @@ def _section_width_at_l(
         lo, hi = bins[i], bins[i + 1]
         m = (l_norm >= lo) & (l_norm < hi)
         if np.any(m):
-            widths.append(float(np.max(w[m]) - np.min(w[m])))
+            q95 = float(np.percentile(w[m], 95))
+            q05 = float(np.percentile(w[m], 5))
+            widths.append(q95 - q05)
             centers.append(float((lo + hi) * 0.5))
 
     if not widths:
@@ -257,9 +262,9 @@ def compute_metrics(
     heel_m = l_norm <= (1.0 / 3.0)
     mid_m = (l_norm > (1.0 / 3.0)) & (l_norm < (2.0 / 3.0))
 
-    forefoot_width_px = float(np.max(w[fore_m]) - np.min(w[fore_m])) if np.any(fore_m) else 0.0
-    heel_width_px = float(np.max(w[heel_m]) - np.min(w[heel_m])) if np.any(heel_m) else 0.0
-    midfoot_min_width_px = float(np.max(w[mid_m]) - np.min(w[mid_m])) if np.any(mid_m) else 0.0
+    forefoot_width_px = float(np.percentile(w[fore_m], 95) - np.percentile(w[fore_m], 5)) if np.any(fore_m) else 0.0
+    heel_width_px = float(np.percentile(w[heel_m], 95) - np.percentile(w[heel_m], 5)) if np.any(heel_m) else 0.0
+    midfoot_min_width_px = float(np.percentile(w[mid_m], 95) - np.percentile(w[mid_m], 5)) if np.any(mid_m) else 0.0
 
     points_lw = np.column_stack([l_norm.astype(np.float32), w.astype(np.float32)])
     fore_max, fore_l = _section_width_at_l(l_norm, w, 2.0 / 3.0, 0.98, mode="max")
