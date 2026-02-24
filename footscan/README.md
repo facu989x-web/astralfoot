@@ -97,6 +97,8 @@ python footscan.py analyze --input "samples/dummy_foot.png" --output_dir outputs
 python footscan.py batch --input "samples" --output_dir outputs --dpi 300 --foot auto
 ```
 
+Al finalizar, `batch` guarda `outputs/batch_summary.json` con conteo de `ok/warn/fail`, promedio de `trim_ratio` y top casos con mayor recorte para revisión rápida.
+
 ### 4) Calibración de escala (mm/px)
 
 Ejemplo: si el largo real del pie medido externamente es 225 mm.

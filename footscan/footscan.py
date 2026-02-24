@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -454,26 +454,69 @@ def cmd_batch(args: argparse.Namespace) -> int:
         return 1
 
     ok = 0
+    warn = 0
+    trim_ratios: List[float] = []
+    flagged: List[Dict[str, Any]] = []
+    out_dir = Path(args.output_dir)
     for idx, image_path in enumerate(files, start=1):
         try:
             def _progress(msg: str, image_name=image_path.name, i=idx, n=len(files)) -> None:
                 print(f"[batch {i}/{n} {image_name}] {msg}")
 
-            _analyze_one(
+            outputs = _analyze_one(
                 image_path,
-                Path(args.output_dir),
+                out_dir,
                 args.dpi,
                 args.foot,
                 args.debug,
                 Path(args.profile) if args.profile else None,
                 _progress,
             )
+
+            result_json = outputs.get("json")
+            if result_json is not None and Path(result_json).exists():
+                with Path(result_json).open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+                metrics = data.get("metrics", {})
+                meta = data.get("metadata", {}).get("adaptive_cleanup", {})
+                status = str(metrics.get("quality_status", "ok"))
+                if status == "warn":
+                    warn += 1
+                trim_ratio = float(meta.get("trim_ratio", 0.0))
+                trim_ratios.append(trim_ratio)
+                if status == "warn":
+                    flagged.append(
+                        {
+                            "file": str(image_path),
+                            "trim_ratio": trim_ratio,
+                            "midfoot_mm": metrics.get("midfoot_min_width_mm"),
+                            "forefoot_mm": metrics.get("forefoot_width_mm"),
+                            "quality_warnings": metrics.get("quality_warnings", []),
+                        }
+                    )
+
             ok += 1
             print(f"OK: {image_path}")
         except Exception as e:
             print(f"Fallo: {image_path} -> {e}")
 
-    print(f"Batch finalizado. Éxitos: {ok}/{len(files)}")
+    summary = {
+        "timestamp": timestamp_iso(),
+        "input_dir": str(in_dir),
+        "output_dir": str(out_dir),
+        "total": len(files),
+        "ok": ok,
+        "warn": warn,
+        "fail": len(files) - ok,
+        "trim_ratio_avg": (sum(trim_ratios) / len(trim_ratios)) if trim_ratios else 0.0,
+        "top_trim_files": sorted(flagged, key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
+    }
+    ensure_dir(out_dir)
+    summary_path = out_dir / "batch_summary.json"
+    save_json(summary_path, summary)
+
+    print(f"Batch finalizado. Éxitos: {ok}/{len(files)} | Warn: {warn}")
+    print(f"Resumen batch: {summary_path}")
     return 0 if ok > 0 else 1
 
 
