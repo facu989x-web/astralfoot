@@ -240,6 +240,8 @@ def _analyze_one(
         "garbage_ratio": metrics_debug.get("garbage_ratio", 0.0),
         "trim_ratio": metrics_debug.get("trim_ratio", 0.0),
         "trim_aggressiveness": metrics_debug.get("trim_aggressiveness", 0.0),
+        "trim_recovery_applied": metrics_debug.get("trim_recovery_applied", False),
+        "mid_span_after_trim_px": metrics_debug.get("mid_span_after_trim_px", 0.0),
     }
 
     save_json(json_path, results)

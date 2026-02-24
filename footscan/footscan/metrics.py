@@ -260,30 +260,35 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     aggressiveness = float(np.clip(0.55 + (0.35 * min(1.0, garbage_ratio)), 0.55, 0.90))
     target_span = max(1.0, ref_span * (1.0 - 0.35 * aggressiveness))
 
-    keep = np.ones(points_xy.shape[0], dtype=bool)
     bins = np.linspace(1.0 / 3.0, 2.0 / 3.0, 25)
-    for i in range(len(bins) - 1):
-        lo, hi = bins[i], bins[i + 1]
-        b = (l_norm >= lo) & (l_norm < hi)
-        if np.count_nonzero(b) < 20:
-            continue
 
-        w_bin = w[b]
-        center = float(np.median(w_bin))
-        q10 = float(np.percentile(w_bin, 10))
-        q90 = float(np.percentile(w_bin, 90))
-        span = q90 - q10
+    def _build_keep(current_target_span: float) -> np.ndarray:
+        keep_local = np.ones(points_xy.shape[0], dtype=bool)
+        for i in range(len(bins) - 1):
+            lo, hi = bins[i], bins[i + 1]
+            b = (l_norm >= lo) & (l_norm < hi)
+            if np.count_nonzero(b) < 20:
+                continue
 
-        if span > target_span:
-            half = 0.5 * target_span
-            lo_w = center - half
-            hi_w = center + half
-        else:
-            lo_w = float(np.percentile(w_bin, 3))
-            hi_w = float(np.percentile(w_bin, 97))
+            w_bin = w[b]
+            center = float(np.median(w_bin))
+            q10 = float(np.percentile(w_bin, 10))
+            q90 = float(np.percentile(w_bin, 90))
+            span = q90 - q10
 
-        idx = np.where(b)[0]
-        keep[idx] = (w[idx] >= lo_w) & (w[idx] <= hi_w)
+            if span > current_target_span:
+                half = 0.5 * current_target_span
+                lo_w = center - half
+                hi_w = center + half
+            else:
+                lo_w = float(np.percentile(w_bin, 3))
+                hi_w = float(np.percentile(w_bin, 97))
+
+            idx = np.where(b)[0]
+            keep_local[idx] = (w[idx] >= lo_w) & (w[idx] <= hi_w)
+        return keep_local
+
+    keep = _build_keep(target_span)
 
     removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep))
     if removed <= 0:
@@ -293,8 +298,35 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     if trimmed.shape[0] < 200:
         return points_xy, 0.0, {"garbage_ratio": garbage_ratio, "aggressiveness": aggressiveness}
 
+    # Guard-rail against over-trimming: if the midfoot becomes implausibly narrow,
+    # rerun with a softer target span.
+    keep_mid = keep[mid_m]
+    mid_trim_vals = w[mid_m][keep_mid]
+    mid_span_after = float(np.percentile(mid_trim_vals, 95) - np.percentile(mid_trim_vals, 5)) if mid_trim_vals.size >= 40 else 0.0
+    min_mid_plausible = max(1.0, 0.55 * min(fore_span, heel_span))
     removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
-    return trimmed, removed_ratio, {"garbage_ratio": garbage_ratio, "aggressiveness": aggressiveness}
+    relaxed_applied = False
+
+    if mid_span_after > 0 and mid_span_after < min_mid_plausible and removed_ratio > 0.18:
+        relaxed_target = max(target_span, ref_span * 0.72)
+        keep_relaxed = _build_keep(relaxed_target)
+        relaxed_mid = w[mid_m][keep_relaxed[mid_m]]
+        if relaxed_mid.size >= 40:
+            relaxed_span = float(np.percentile(relaxed_mid, 95) - np.percentile(relaxed_mid, 5))
+            if relaxed_span >= mid_span_after:
+                keep = keep_relaxed
+                trimmed = points_xy[keep]
+                removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep))
+                removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
+                mid_span_after = relaxed_span
+                relaxed_applied = True
+
+    return trimmed, removed_ratio, {
+        "garbage_ratio": garbage_ratio,
+        "aggressiveness": aggressiveness,
+        "relaxed_recovery": float(1.0 if relaxed_applied else 0.0),
+        "mid_span_after": mid_span_after,
+    }
 
 
 def _build_clean_model_mask(mask_shape: Tuple[int, int], points_xy: np.ndarray) -> np.ndarray:
@@ -478,5 +510,7 @@ def compute_metrics(
         "trim_ratio": float(trim_ratio),
         "garbage_ratio": float(trim_debug.get("garbage_ratio", 0.0)),
         "trim_aggressiveness": float(trim_debug.get("aggressiveness", 0.0)),
+        "trim_recovery_applied": bool(trim_debug.get("relaxed_recovery", 0.0) > 0.5),
+        "mid_span_after_trim_px": float(trim_debug.get("mid_span_after", 0.0)),
     }
     return metrics, contact_rel, debug_data
