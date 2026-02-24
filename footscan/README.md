@@ -124,6 +124,8 @@ Los perfiles guardan `source_dpi`; al analizar, si `--profile` y `--dpi` difiere
 
 ```bash
 python footscan.py gui
+# o lanzamiento directo pensado para empaquetado EXE
+python footscan_gui.py
 ```
 
 La GUI permite:
@@ -132,6 +134,18 @@ La GUI permite:
 - marcar puntos manuales sobre una cuadrícula,
 - agregar comentarios/realces,
 - exportar un JSON de anotaciones para fabricación/seguimiento.
+
+
+### 7) Preparación para EXE (PyInstaller)
+
+Ejemplo rápido (Windows):
+
+```bash
+pip install pyinstaller
+pyinstaller --noconfirm --onefile --windowed footscan_gui.py --name FootScanGUI
+```
+
+Esto genera un ejecutable de GUI (sin consola) en `dist/FootScanGUI.exe`.
 
 ## Salidas
 

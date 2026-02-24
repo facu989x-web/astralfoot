@@ -7,18 +7,15 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import cv2
 import numpy as np
 
 from footscan.acquire import acquire_from_file, acquire_from_scanner
-from footscan.metrics import compute_metrics
-from footscan.preprocess import preprocess_image
-from footscan.report import create_report_pdf
-from footscan.segment import segment_footprint
 from footscan.utils import ensure_dir, load_image_any, save_image, save_json, timestamp_iso
 
 
 def _draw_overlay(image_bgr, contour, metrics) -> Any:
+    import cv2
+
     overlay = image_bgr.copy()
     cv2.drawContours(overlay, [contour], -1, (0, 255, 0), 2)
 
@@ -53,6 +50,8 @@ def _draw_overlay(image_bgr, contour, metrics) -> Any:
 
 def _draw_bbox(image_bgr, crop_meta: Dict[str, Any]) -> Any:
     """Draw ROI bounding rectangle over full image for debug."""
+    import cv2
+
     out = image_bgr.copy()
     x, y, w, h = int(crop_meta["x"]), int(crop_meta["y"]), int(crop_meta["w"]), int(crop_meta["h"])
     cv2.rectangle(out, (x, y), (x + w, y + h), (0, 255, 255), 3)
@@ -62,6 +61,8 @@ def _draw_bbox(image_bgr, crop_meta: Dict[str, Any]) -> Any:
 
 def _draw_mask_overlay(image_bgr, mask) -> Any:
     """Overlay mask in semi-transparent color for debug inspection."""
+    import cv2
+
     out = image_bgr.copy()
     color_layer = np.zeros_like(out)
     color_layer[:, :] = (0, 220, 255)
@@ -79,6 +80,8 @@ def _maybe_resize_for_processing(
 
     Returns resized image, effective dpi and resize metadata (or None if unchanged).
     """
+    import cv2
+
     h, w = image_bgr.shape[:2]
     total = h * w
     if total <= max_pixels:
@@ -305,6 +308,12 @@ def _analyze_one(
     profile_path: Optional[Path] = None,
     progress_fn: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Path]:
+    import cv2
+    from footscan.metrics import compute_metrics
+    from footscan.preprocess import preprocess_image
+    from footscan.report import create_report_pdf
+    from footscan.segment import segment_footprint
+
     ensure_dir(output_dir)
 
     def _progress(msg: str) -> None:
@@ -519,6 +528,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def cmd_calibrate(args: argparse.Namespace) -> int:
     try:
+        from footscan.metrics import compute_metrics
+        from footscan.preprocess import preprocess_image
+        from footscan.segment import segment_footprint
+
         input_path = Path(args.input)
         image_raw = load_image_any(input_path)
         image, _, resize_meta = _maybe_resize_for_processing(image_raw, args.dpi)
