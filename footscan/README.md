@@ -30,7 +30,7 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
   - Eje principal y ángulo.
 - Mapa de intensidad de contacto relativo (ponderado para evitar artefactos de borde y conservar detalle dentro de la planta).
 - Control automático de calidad en métricas (banderas `quality_status` y `quality_warnings` en JSON/PDF).
-- Regla adaptativa de recorte lateral en mediopié para reducir contaminación por sombras laterales en anchos/arco.
+- Regla adaptativa de recorte lateral en mediopié para reducir contaminación por sombras laterales en anchos/arco, con detección automática de basura para ajustar agresividad.
 
 ## Estructura
 
@@ -122,7 +122,7 @@ Para una entrada `dummy_foot.png` se generan:
 - `outputs/dummy_foot_heatmap.png`
 - `outputs/dummy_foot_results.json`
 - `outputs/dummy_foot_report.pdf`
-- además, con `--debug`, imágenes intermedias del pipeline, incluyendo `debug_full_with_roi_box` y `debug_roi_mask_overlay` para validar el recorte automático.
+- además, con `--debug`, imágenes intermedias del pipeline, incluyendo `debug_full_with_roi_box`, `debug_roi_mask_overlay`, `debug_clean_model_mask` y `debug_clean_model_overlay` para comparar máscara base vs modelo limpio.
 
 ## Notas de adquisición (WIA/TWAIN)
 
@@ -141,3 +141,4 @@ Para una entrada `dummy_foot.png` se generan:
 - El heatmap es relativo a la intensidad de la huella escaneada (más claro en el escaneo tiende a mayor contacto relativo), no una medición de presión certificada.
 - La máscara de huella se rellena sobre el contorno principal para evitar "huellas huecas" (contorno con interior negro) que distorsionan el heatmap y el cálculo de área.
 - Se aplica recorte automático al bounding box del pie (con margen) para reducir ruido por fondo, ropa o zonas escaneadas sin contacto.
+- `results.json` incluye `metadata.adaptive_cleanup` con indicadores de detección de basura (`garbage_ratio`) y agresividad de recorte (`trim_aggressiveness`) para auditoría técnica.

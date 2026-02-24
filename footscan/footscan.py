@@ -151,7 +151,7 @@ def _analyze_one(
     seg = segment_footprint(prep["denoised"])
 
     _progress("4/8 Cálculo de métricas y mapa de contacto")
-    metrics, contact_rel = compute_metrics(
+    metrics, contact_rel, metrics_debug = compute_metrics(
         seg.mask,
         prep["corrected"],
         prep["gray"],
@@ -236,6 +236,11 @@ def _analyze_one(
     results["metadata"]["roi_crop"] = crop_meta
     if calibration_meta is not None:
         results["metadata"]["calibration"] = calibration_meta
+    results["metadata"]["adaptive_cleanup"] = {
+        "garbage_ratio": metrics_debug.get("garbage_ratio", 0.0),
+        "trim_ratio": metrics_debug.get("trim_ratio", 0.0),
+        "trim_aggressiveness": metrics_debug.get("trim_aggressiveness", 0.0),
+    }
 
     save_json(json_path, results)
     create_report_pdf(pdf_path, input_path, overlay_path, heatmap_path, results)
@@ -245,6 +250,13 @@ def _analyze_one(
         save_image(output_dir / f"{stem}_debug_full_with_roi_box.png", _draw_bbox(image, crop_meta))
         save_image(output_dir / f"{stem}_debug_roi_crop.png", image_roi)
         save_image(output_dir / f"{stem}_debug_roi_mask_overlay.png", _draw_mask_overlay(image_roi, seg.mask))
+        clean_model_mask = metrics_debug.get("clean_model_mask")
+        if isinstance(clean_model_mask, np.ndarray) and clean_model_mask.size > 0:
+            save_image(output_dir / f"{stem}_debug_clean_model_mask.png", clean_model_mask)
+            save_image(
+                output_dir / f"{stem}_debug_clean_model_overlay.png",
+                _draw_mask_overlay(image_roi, clean_model_mask),
+            )
         for key, img in prep.items():
             save_image(output_dir / f"{stem}_debug_pre_{key}.png", img)
         for key, img in seg.debug_images.items():
@@ -316,7 +328,7 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
 
         prep = preprocess_image(image_roi)
         seg = segment_footprint(prep["denoised"])
-        metrics, _ = compute_metrics(seg.mask, prep["corrected"], prep["gray"], foot_hint="auto", dpi=None)
+        metrics, _, _ = compute_metrics(seg.mask, prep["corrected"], prep["gray"], foot_hint="auto", dpi=None)
 
         if args.ref_mm <= 0 or metrics.length_px <= 0:
             raise ValueError("No se pudo calcular calibración: largo de referencia o largo en px inválido.")

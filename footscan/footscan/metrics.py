@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -223,10 +223,13 @@ def _line_endpoints_from_l(
     return (float(p1[1]), float(p1[0])), (float(p2[1]), float(p2[0]))
 
 
-def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, float]:
-    """Trim lateral outliers in midfoot using adaptive, section-wise limits."""
+def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, float, Dict[str, float]]:
+    """Trim lateral outliers in midfoot using adaptive, section-wise limits.
+
+    Returns trimmed points, removed ratio in midfoot and debug information.
+    """
     if points_xy.shape[0] < 200:
-        return points_xy, 0.0
+        return points_xy, 0.0, {"garbage_ratio": 0.0, "aggressiveness": 0.0}
 
     centroid_xy, axis_xy = _pca_axis(points_xy)
     perp_xy = np.array([-axis_xy[1], axis_xy[0]], dtype=np.float32)
@@ -237,7 +240,7 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     l_min, l_max = float(np.min(l)), float(np.max(l))
     length = float(l_max - l_min)
     if length <= 1e-6:
-        return points_xy, 0.0
+        return points_xy, 0.0, {"garbage_ratio": 0.0, "aggressiveness": 0.0}
 
     l_norm = (l - l_min) / (length + 1e-8)
     fore_m = l_norm >= (2.0 / 3.0)
@@ -245,11 +248,17 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     mid_m = (l_norm > (1.0 / 3.0)) & (l_norm < (2.0 / 3.0))
 
     if np.count_nonzero(mid_m) < 120 or np.count_nonzero(fore_m) < 80 or np.count_nonzero(heel_m) < 80:
-        return points_xy, 0.0
+        return points_xy, 0.0, {"garbage_ratio": 0.0, "aggressiveness": 0.0}
 
     fore_span = float(np.percentile(w[fore_m], 95) - np.percentile(w[fore_m], 5))
     heel_span = float(np.percentile(w[heel_m], 95) - np.percentile(w[heel_m], 5))
-    target_span = max(1.0, min(fore_span, heel_span) * 0.92)
+    ref_span = max(1.0, min(fore_span, heel_span))
+    raw_mid_span = float(np.percentile(w[mid_m], 97) - np.percentile(w[mid_m], 3))
+    garbage_ratio = max(0.0, (raw_mid_span - ref_span) / ref_span)
+
+    # Higher contamination => stronger trimming (smaller target span).
+    aggressiveness = float(np.clip(0.55 + (0.35 * min(1.0, garbage_ratio)), 0.55, 0.90))
+    target_span = max(1.0, ref_span * (1.0 - 0.35 * aggressiveness))
 
     keep = np.ones(points_xy.shape[0], dtype=bool)
     bins = np.linspace(1.0 / 3.0, 2.0 / 3.0, 25)
@@ -278,14 +287,39 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
 
     removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep))
     if removed <= 0:
-        return points_xy, 0.0
+        return points_xy, 0.0, {"garbage_ratio": garbage_ratio, "aggressiveness": aggressiveness}
 
     trimmed = points_xy[keep]
     if trimmed.shape[0] < 200:
-        return points_xy, 0.0
+        return points_xy, 0.0, {"garbage_ratio": garbage_ratio, "aggressiveness": aggressiveness}
 
     removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
-    return trimmed, removed_ratio
+    return trimmed, removed_ratio, {"garbage_ratio": garbage_ratio, "aggressiveness": aggressiveness}
+
+
+def _build_clean_model_mask(mask_shape: Tuple[int, int], points_xy: np.ndarray) -> np.ndarray:
+    """Build a smooth 'foot model' mask from cleaned points for debug comparison."""
+    model = np.zeros(mask_shape, dtype=np.uint8)
+    if points_xy.shape[0] < 50:
+        return model
+
+    pts_int = np.round(points_xy).astype(np.int32)
+    pts_int[:, 0] = np.clip(pts_int[:, 0], 0, mask_shape[1] - 1)
+    pts_int[:, 1] = np.clip(pts_int[:, 1], 0, mask_shape[0] - 1)
+    model[pts_int[:, 1], pts_int[:, 0]] = 255
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+    model = cv2.morphologyEx(model, cv2.MORPH_CLOSE, kernel)
+    model = cv2.morphologyEx(model, cv2.MORPH_OPEN, kernel)
+    model = _largest_component(model)
+
+    contours, _ = cv2.findContours(model, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        filled = np.zeros_like(model)
+        c = max(contours, key=cv2.contourArea)
+        cv2.drawContours(filled, [c], -1, 255, thickness=cv2.FILLED)
+        model = filled
+    return model
 
 
 def compute_metrics(
@@ -294,7 +328,7 @@ def compute_metrics(
     original_gray: np.ndarray,
     foot_hint: str = "auto",
     dpi: Optional[float] = None,
-) -> Tuple[FootMetrics, np.ndarray]:
+) -> Tuple[FootMetrics, np.ndarray, Dict[str, Any]]:
     """Compute geometric and contact-intensity metrics from segmented footprint."""
     metric_mask = _build_metrics_mask(mask, corrected_gray)
     ys, xs = np.where(metric_mask > 0)
@@ -302,7 +336,7 @@ def compute_metrics(
         raise ValueError("Máscara insuficiente para calcular métricas.")
 
     points_xy = np.column_stack([xs.astype(np.float32), ys.astype(np.float32)])
-    points_xy, trim_ratio = _trim_midfoot_lateral_outliers(points_xy)
+    points_xy, trim_ratio, trim_debug = _trim_midfoot_lateral_outliers(points_xy)
     centroid_xy, axis_xy = _pca_axis(points_xy)
     perp_xy = np.array([-axis_xy[1], axis_xy[0]], dtype=np.float32)
 
@@ -439,4 +473,10 @@ def compute_metrics(
         quality_status=quality_status,
         quality_warnings=quality_warnings,
     )
-    return metrics, contact_rel
+    debug_data: Dict[str, Any] = {
+        "clean_model_mask": _build_clean_model_mask(metric_mask.shape, points_xy),
+        "trim_ratio": float(trim_ratio),
+        "garbage_ratio": float(trim_debug.get("garbage_ratio", 0.0)),
+        "trim_aggressiveness": float(trim_debug.get("aggressiveness", 0.0)),
+    }
+    return metrics, contact_rel, debug_data
