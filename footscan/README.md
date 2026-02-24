@@ -98,7 +98,7 @@ python footscan.py analyze --input "samples/dummy_foot.png" --output_dir outputs
 python footscan.py batch --input "samples" --output_dir outputs --dpi 300 --foot auto
 ```
 
-Al finalizar, `batch` guarda `outputs/batch_summary.json` con conteo de `success/ok/warn/fail`, `warn_trim`, promedio de `trim_ratio`, `top_trim_files` (mayor recorte) y `top_warn_files` (casos en warning) para revisión rápida.
+Al finalizar, `batch` guarda `outputs/batch_summary.json` con conteo de `success/ok/warn/fail`, `warn_trim`, `trim_watch` (casos con `trim_ratio` alto aunque no haya `warn`), promedio de `trim_ratio`, `top_trim_files`, `top_trim_watch_files` y `top_warn_files` para revisión rápida.
 
 ### 4) Calibración de escala (mm/px)
 

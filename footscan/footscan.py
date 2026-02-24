@@ -653,6 +653,8 @@ def cmd_batch(args: argparse.Namespace) -> int:
     quality_ok = 0
     warn = 0
     trim_warn = 0
+    trim_watch_threshold = 0.20
+    trim_watch = 0
     trim_ratios: List[float] = []
     flagged: List[Dict[str, Any]] = []
     analyzed: List[Dict[str, Any]] = []
@@ -689,6 +691,8 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 has_trim_warning = any("Recorte lateral adaptativo en mediopié" in str(w) for w in quality_warnings)
                 if has_trim_warning:
                     trim_warn += 1
+                if trim_ratio >= trim_watch_threshold:
+                    trim_watch += 1
 
                 row = {
                     "file": str(image_path),
@@ -717,16 +721,19 @@ def cmd_batch(args: argparse.Namespace) -> int:
         "ok": quality_ok,
         "warn": warn,
         "warn_trim": trim_warn,
+        "trim_watch_threshold": trim_watch_threshold,
+        "trim_watch": trim_watch,
         "fail": len(files) - success,
         "trim_ratio_avg": (sum(trim_ratios) / len(trim_ratios)) if trim_ratios else 0.0,
         "top_trim_files": sorted(analyzed, key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
+        "top_trim_watch_files": sorted([r for r in analyzed if float(r.get("trim_ratio", 0.0)) >= trim_watch_threshold], key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
         "top_warn_files": sorted(flagged, key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
     }
     ensure_dir(out_dir)
     summary_path = out_dir / "batch_summary.json"
     save_json(summary_path, summary)
 
-    print(f"Batch finalizado. Éxitos: {success}/{len(files)} | OK calidad: {quality_ok} | Warn: {warn} | Warn(trim): {trim_warn}")
+    print(f"Batch finalizado. Éxitos: {success}/{len(files)} | OK calidad: {quality_ok} | Warn: {warn} | Warn(trim): {trim_warn} | Watch(trim>={trim_watch_threshold:.2f}): {trim_watch}")
     print(f"Resumen batch: {summary_path}")
     return 0 if success > 0 else 1
 
