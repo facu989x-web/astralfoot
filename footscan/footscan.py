@@ -167,13 +167,17 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
     mid = zones["midfoot"]["mean_contact_rel"]
     fore = zones["forefoot"]["mean_contact_rel"]
     heel = zones["heel"]["mean_contact_rel"]
+    toes_high = zones["toes"]["high_contact_ratio"]
+    toes_share = zones["toes"]["pixel_share"]
 
-    if mid < 0.35 * max(fore, 1e-6):
-        flags.append("Mediopié con contacto relativo bajo frente a antepié (posible arco alto o sobre-recorte).")
+    if fore > 0 and (mid / fore) < 0.72:
+        flags.append("Mediopié relativamente bajo frente a antepié (revisar arco y/o posible sobre-recorte).")
     if zones["toes"]["high_contact_ratio"] < 0.05:
         flags.append("Contacto alto en dedos bajo; revisar postura/captura.")
-    if abs(heel - fore) > 0.25:
+    if abs(heel - fore) > 0.18:
         flags.append("Desbalance marcado entre talón y antepié en contacto relativo.")
+    if toes_high > 0.98 and toes_share > 0.05:
+        flags.append("Dedos con saturación alta de contacto relativo; verificar contraste o normalización.")
 
     action = "ok"
     if flags:
