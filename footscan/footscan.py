@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -129,18 +129,28 @@ def _analyze_one(
     foot: str,
     debug: bool,
     profile_path: Optional[Path] = None,
+    progress_fn: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Path]:
     ensure_dir(output_dir)
 
+    def _progress(msg: str) -> None:
+        if progress_fn is not None:
+            progress_fn(msg)
+
+    _progress("1/8 Cargando imagen")
     image_raw = load_image_any(input_path)
     image, effective_dpi, resize_meta = _maybe_resize_for_processing(image_raw, dpi)
 
+    _progress("2/8 Preprocesado y segmentación inicial")
     prep = preprocess_image(image)
     seg = segment_footprint(prep["denoised"])
 
+    _progress("3/8 Recorte ROI y segunda segmentación")
     image_roi, crop_meta = _crop_to_bbox(image, seg.bbox)
     prep = preprocess_image(image_roi)
     seg = segment_footprint(prep["denoised"])
+
+    _progress("4/8 Cálculo de métricas y mapa de contacto")
     metrics, contact_rel = compute_metrics(
         seg.mask,
         prep["corrected"],
@@ -151,6 +161,7 @@ def _analyze_one(
 
     calibration_meta: Optional[Dict[str, Any]] = None
     if profile_path is not None:
+        _progress("5/8 Aplicando perfil de calibración")
         with profile_path.open("r", encoding="utf-8") as f:
             profile = json.load(f)
 
@@ -186,6 +197,8 @@ def _analyze_one(
     save_image(overlay_path, overlay)
     save_image(mask_path, seg.mask)
     save_image(heatmap_path, heatmap)
+
+    _progress("6/8 Exportando JSON/PDF")
 
     results: Dict[str, Any] = {
         "metadata": {
@@ -228,6 +241,7 @@ def _analyze_one(
     create_report_pdf(pdf_path, input_path, overlay_path, heatmap_path, results)
 
     if debug:
+        _progress("7/8 Guardando debug")
         save_image(output_dir / f"{stem}_debug_full_with_roi_box.png", _draw_bbox(image, crop_meta))
         save_image(output_dir / f"{stem}_debug_roi_crop.png", image_roi)
         save_image(output_dir / f"{stem}_debug_roi_mask_overlay.png", _draw_mask_overlay(image_roi, seg.mask))
@@ -235,6 +249,8 @@ def _analyze_one(
             save_image(output_dir / f"{stem}_debug_pre_{key}.png", img)
         for key, img in seg.debug_images.items():
             save_image(output_dir / f"{stem}_debug_seg_{key}.png", img)
+
+    _progress("8/8 Completado")
 
     return {
         "overlay": overlay_path,
@@ -384,6 +400,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def cmd_analyze(args: argparse.Namespace) -> int:
     try:
+        def _progress(msg: str) -> None:
+            print(f"[analyze] {msg}")
+
         outputs = _analyze_one(
             Path(args.input),
             Path(args.output_dir),
@@ -391,6 +410,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             args.foot,
             args.debug,
             Path(args.profile) if args.profile else None,
+            _progress,
         )
         print("Análisis completado:")
         for k, v in outputs.items():
@@ -417,8 +437,11 @@ def cmd_batch(args: argparse.Namespace) -> int:
         return 1
 
     ok = 0
-    for image_path in files:
+    for idx, image_path in enumerate(files, start=1):
         try:
+            def _progress(msg: str, image_name=image_path.name, i=idx, n=len(files)) -> None:
+                print(f"[batch {i}/{n} {image_name}] {msg}")
+
             _analyze_one(
                 image_path,
                 Path(args.output_dir),
@@ -426,6 +449,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 args.foot,
                 args.debug,
                 Path(args.profile) if args.profile else None,
+                _progress,
             )
             ok += 1
             print(f"OK: {image_path}")

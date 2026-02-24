@@ -11,6 +11,7 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
   - `analyze`: procesa una imagen y genera `overlay.png`, `mask.png`, `heatmap.png`, `results.json`, `report.pdf`.
   - `batch`: procesa una carpeta completa.
   - `calibrate`: crea perfil de calibración `mm_per_px` usando largo real conocido.
+  - `analyze` y `batch` muestran progreso por etapas en consola para seguimiento.
 - Pipeline de visión por computadora:
   1. Escala de grises.
   2. Flat-field correction (normalización de iluminación).
