@@ -177,18 +177,27 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
     toes_high = zones["toes"]["high_contact_ratio"]
     toes_share = zones["toes"]["pixel_share"]
 
-    if fore > 0 and (mid / fore) < 0.72:
+    mid_fore_ratio = (mid / fore) if fore > 1e-6 else 0.0
+    heel_fore_gap = abs(heel - fore)
+
+    if fore > 0 and mid_fore_ratio < 0.68:
         flags.append("Mediopié relativamente bajo frente a antepié (revisar arco y/o posible sobre-recorte).")
-        score += 30
+        score += 24
     if zones["toes"]["high_contact_ratio"] < 0.05:
         flags.append("Contacto alto en dedos bajo; revisar postura/captura.")
         score += 15
-    if abs(heel - fore) > 0.18:
+    if heel_fore_gap > 0.22:
         flags.append("Desbalance marcado entre talón y antepié en contacto relativo.")
-        score += 25
-    if toes_high > 0.98 and toes_share > 0.05:
-        flags.append("Dedos con saturación alta de contacto relativo; verificar contraste o normalización.")
         score += 20
+    if toes_high > 0.995 and toes_share > 0.08 and fore < 0.80:
+        flags.append("Dedos con saturación alta de contacto relativo; verificar contraste o normalización.")
+        score += 12
+
+    # Guard rail to avoid over-flagging technically clean captures with plausible arch ranges.
+    if metrics.quality_status == "ok" and 12.0 <= float(metrics.arch_index_chippaux_smirak) <= 45.0:
+        if mid_fore_ratio >= 0.68 and heel_fore_gap <= 0.22:
+            flags = [f for f in flags if "Mediopié relativamente bajo" not in f and "Desbalance marcado" not in f]
+            score = min(score, 20)
 
     if metrics.quality_status != "ok":
         score += 35
