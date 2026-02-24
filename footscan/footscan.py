@@ -170,6 +170,7 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
         }
 
     flags: List[str] = []
+    observations: List[str] = []
     score = 0
     mid = zones["midfoot"]["mean_contact_rel"]
     fore = zones["forefoot"]["mean_contact_rel"]
@@ -193,16 +194,25 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
         flags.append("Dedos con saturación alta de contacto relativo; verificar contraste o normalización.")
         score += 12
 
+
+    # Soft observations (non-blocking): keep context even when action stays ok.
+    if fore > 0 and 0.66 <= mid_fore_ratio < 0.74:
+        observations.append("Relación mediopié/antepié en banda limítrofe; conviene seguimiento comparativo.")
+        score += 8
+    if 0.18 < heel_fore_gap <= 0.24:
+        observations.append("Brecha talón-antepié moderada; revisar consistencia en próximas capturas.")
+        score += 6
+
     # Guard rail to avoid over-flagging technically clean captures with plausible arch ranges.
     if metrics.quality_status == "ok" and 12.0 <= float(metrics.arch_index_chippaux_smirak) <= 45.0:
         # Strict clean band.
         if mid_fore_ratio >= 0.68 and heel_fore_gap <= 0.22:
             flags = [f for f in flags if "Mediopié relativamente bajo" not in f and "Desbalance marcado" not in f]
-            score = min(score, 20)
+            score = min(max(score, 8), 20)
         # Relaxed band to absorb mild scanner/normalization drift.
         elif mid_fore_ratio >= 0.66 and heel_fore_gap <= 0.24 and toes_high <= 0.995:
             flags = [f for f in flags if "Mediopié relativamente bajo" not in f and "Desbalance marcado" not in f]
-            score = min(score, 25)
+            score = min(max(score, 10), 25)
 
     if metrics.quality_status != "ok":
         score += 35
@@ -219,6 +229,7 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
     return {
         "zones": zones,
         "flags": flags,
+        "observations": observations,
         "action": action,
         "review_score": score,
         "severity": severity,

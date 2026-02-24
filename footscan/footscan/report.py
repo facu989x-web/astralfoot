@@ -60,6 +60,9 @@ def _metric_rows(results: Dict) -> List[Tuple[str, str]]:
     flags = findings.get("flags") or []
     if flags:
         rows.append(("Hallazgos", " | ".join(str(f) for f in flags)))
+    observations = findings.get("observations") or []
+    if observations:
+        rows.append(("Observaciones", " | ".join(str(o) for o in observations)))
     return rows
 
 
