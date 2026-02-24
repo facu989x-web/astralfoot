@@ -195,9 +195,14 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
 
     # Guard rail to avoid over-flagging technically clean captures with plausible arch ranges.
     if metrics.quality_status == "ok" and 12.0 <= float(metrics.arch_index_chippaux_smirak) <= 45.0:
+        # Strict clean band.
         if mid_fore_ratio >= 0.68 and heel_fore_gap <= 0.22:
             flags = [f for f in flags if "Mediopié relativamente bajo" not in f and "Desbalance marcado" not in f]
             score = min(score, 20)
+        # Relaxed band to absorb mild scanner/normalization drift.
+        elif mid_fore_ratio >= 0.66 and heel_fore_gap <= 0.24 and toes_high <= 0.995:
+            flags = [f for f in flags if "Mediopié relativamente bajo" not in f and "Desbalance marcado" not in f]
+            score = min(score, 25)
 
     if metrics.quality_status != "ok":
         score += 35
