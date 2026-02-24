@@ -141,4 +141,4 @@ Para una entrada `dummy_foot.png` se generan:
 - El heatmap es relativo a la intensidad de la huella escaneada (más claro en el escaneo tiende a mayor contacto relativo), no una medición de presión certificada.
 - La máscara de huella se rellena sobre el contorno principal para evitar "huellas huecas" (contorno con interior negro) que distorsionan el heatmap y el cálculo de área.
 - Se aplica recorte automático al bounding box del pie (con margen) para reducir ruido por fondo, ropa o zonas escaneadas sin contacto.
-- `results.json` incluye `metadata.adaptive_cleanup` con indicadores de detección de basura (`garbage_ratio`), agresividad de recorte (`trim_aggressiveness`) y recuperación anti sobre-recorte (`trim_recovery_applied`).
+- `results.json` incluye `metadata.adaptive_cleanup` con indicadores de detección de basura (`garbage_ratio`), agresividad de recorte (`trim_aggressiveness`), recuperación anti sobre-recorte (`trim_recovery_applied`/`trim_recovery_level`) y pisos de plausibilidad usados en mediopié (`mid_plausible_floor_px`).

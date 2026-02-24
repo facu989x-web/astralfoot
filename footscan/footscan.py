@@ -241,7 +241,10 @@ def _analyze_one(
         "trim_ratio": metrics_debug.get("trim_ratio", 0.0),
         "trim_aggressiveness": metrics_debug.get("trim_aggressiveness", 0.0),
         "trim_recovery_applied": metrics_debug.get("trim_recovery_applied", False),
+        "trim_recovery_level": metrics_debug.get("trim_recovery_level", 0),
         "mid_span_after_trim_px": metrics_debug.get("mid_span_after_trim_px", 0.0),
+        "mid_core_span_before_trim_px": metrics_debug.get("mid_core_span_before_trim_px", 0.0),
+        "mid_plausible_floor_px": metrics_debug.get("mid_plausible_floor_px", 0.0),
     }
 
     save_json(json_path, results)

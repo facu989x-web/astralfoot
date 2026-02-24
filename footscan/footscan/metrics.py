@@ -254,6 +254,7 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     heel_span = float(np.percentile(w[heel_m], 95) - np.percentile(w[heel_m], 5))
     ref_span = max(1.0, min(fore_span, heel_span))
     raw_mid_span = float(np.percentile(w[mid_m], 97) - np.percentile(w[mid_m], 3))
+    raw_mid_core_span = float(np.percentile(w[mid_m], 80) - np.percentile(w[mid_m], 20))
     garbage_ratio = max(0.0, (raw_mid_span - ref_span) / ref_span)
 
     # Higher contamination => stronger trimming (smaller target span).
@@ -303,11 +304,13 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     keep_mid = keep[mid_m]
     mid_trim_vals = w[mid_m][keep_mid]
     mid_span_after = float(np.percentile(mid_trim_vals, 95) - np.percentile(mid_trim_vals, 5)) if mid_trim_vals.size >= 40 else 0.0
-    min_mid_plausible = max(1.0, 0.62 * min(fore_span, heel_span))
+    min_mid_plausible_ref = max(1.0, 0.62 * min(fore_span, heel_span))
+    min_mid_plausible_core = max(1.0, 1.12 * raw_mid_core_span)
+    min_mid_plausible = max(min_mid_plausible_ref, min_mid_plausible_core)
     removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
     relaxed_applied = False
 
-    if mid_span_after > 0 and mid_span_after < min_mid_plausible and removed_ratio > 0.16:
+    if mid_span_after > 0 and mid_span_after < min_mid_plausible and removed_ratio > 0.14:
         relaxed_target = max(target_span, ref_span * 0.80)
         keep_relaxed = _build_keep(relaxed_target)
         relaxed_mid = w[mid_m][keep_relaxed[mid_m]]
@@ -323,8 +326,8 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
 
     # Hard ceiling for aggressive cleanup. If still too many points were removed,
     # use an extra-soft pass to preserve anatomic plausibility.
-    if removed_ratio > 0.24:
-        extra_soft_target = max(target_span, ref_span * 0.86)
+    if removed_ratio > 0.22 or (mid_span_after > 0 and mid_span_after < min_mid_plausible):
+        extra_soft_target = max(target_span, ref_span * 0.92)
         keep_soft = _build_keep(extra_soft_target)
         soft_trimmed = points_xy[keep_soft]
         if soft_trimmed.shape[0] >= 200:
@@ -339,11 +342,20 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
                     mid_span_after = float(np.percentile(soft_mid, 95) - np.percentile(soft_mid, 5))
                 relaxed_applied = True
 
+    recovery_level = 0.0
+    if relaxed_applied:
+        recovery_level = 1.0
+    if removed_ratio > 0.22:
+        recovery_level = 2.0
+
     return trimmed, removed_ratio, {
         "garbage_ratio": garbage_ratio,
         "aggressiveness": aggressiveness,
         "relaxed_recovery": float(1.0 if relaxed_applied else 0.0),
         "mid_span_after": mid_span_after,
+        "mid_core_span_before": raw_mid_core_span,
+        "mid_plausible_floor": min_mid_plausible,
+        "recovery_level": recovery_level,
     }
 
 
@@ -530,5 +542,8 @@ def compute_metrics(
         "trim_aggressiveness": float(trim_debug.get("aggressiveness", 0.0)),
         "trim_recovery_applied": bool(trim_debug.get("relaxed_recovery", 0.0) > 0.5),
         "mid_span_after_trim_px": float(trim_debug.get("mid_span_after", 0.0)),
+        "mid_core_span_before_trim_px": float(trim_debug.get("mid_core_span_before", 0.0)),
+        "mid_plausible_floor_px": float(trim_debug.get("mid_plausible_floor", 0.0)),
+        "trim_recovery_level": int(trim_debug.get("recovery_level", 0.0)),
     }
     return metrics, contact_rel, debug_data
