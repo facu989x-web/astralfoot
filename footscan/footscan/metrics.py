@@ -259,8 +259,8 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
 
     # Higher contamination => stronger trimming (smaller target span), but keep
     # this relationship intentionally soft to avoid over-narrowing the midfoot.
-    aggressiveness = float(np.clip(0.45 + (0.25 * min(1.0, garbage_ratio)), 0.45, 0.70))
-    target_span = max(1.0, ref_span * (1.0 - 0.18 * aggressiveness))
+    aggressiveness = float(np.clip(0.40 + (0.20 * min(1.0, garbage_ratio)), 0.40, 0.60))
+    target_span = max(1.0, ref_span * (1.0 - 0.14 * aggressiveness))
 
     bins = np.linspace(1.0 / 3.0, 2.0 / 3.0, 25)
 
@@ -311,8 +311,8 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
     relaxed_applied = False
 
-    if mid_span_after > 0 and mid_span_after < min_mid_plausible and removed_ratio > 0.12:
-        relaxed_target = max(target_span, ref_span * 0.90)
+    if mid_span_after > 0 and mid_span_after < min_mid_plausible and removed_ratio > 0.10:
+        relaxed_target = max(target_span, ref_span * 0.94)
         keep_relaxed = _build_keep(relaxed_target)
         relaxed_mid = w[mid_m][keep_relaxed[mid_m]]
         if relaxed_mid.size >= 40:
@@ -328,8 +328,8 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     # Hard ceiling for aggressive cleanup. If still too many points were removed,
     # use an extra-soft pass to preserve anatomic plausibility.
     heel_floor = max(1.0, 0.70 * heel_span)
-    if removed_ratio > 0.20 or (mid_span_after > 0 and (mid_span_after < min_mid_plausible or mid_span_after < heel_floor)):
-        extra_soft_target = max(target_span, ref_span * 0.98)
+    if removed_ratio > 0.18 or (mid_span_after > 0 and (mid_span_after < min_mid_plausible or mid_span_after < heel_floor)):
+        extra_soft_target = max(target_span, ref_span * 1.03)
         keep_soft = _build_keep(extra_soft_target)
         soft_trimmed = points_xy[keep_soft]
         if soft_trimmed.shape[0] >= 200:
@@ -347,7 +347,7 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     recovery_level = 0.0
     if relaxed_applied:
         recovery_level = 1.0
-    if removed_ratio > 0.20:
+    if removed_ratio > 0.18:
         recovery_level = 2.0
 
     return trimmed, removed_ratio, {
@@ -511,7 +511,7 @@ def compute_metrics(
         ys_q,
         xs_q,
     )
-    if trim_ratio >= 0.12:
+    if trim_ratio >= 0.18:
         quality_warnings = tuple(list(quality_warnings) + [f"Recorte lateral adaptativo en mediopié aplicado ({trim_ratio * 100:.1f}% de puntos en mediopié)."] )
         quality_status = "warn" if quality_status == "ok" else quality_status
 
