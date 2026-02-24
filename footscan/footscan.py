@@ -168,6 +168,12 @@ def _analyze_one(
         mm_per_px = profile.get("mm_per_px")
         if mm_per_px is not None:
             mm_per_px = float(mm_per_px)
+            profile_dpi = profile.get("source_dpi")
+            dpi_scale_applied = 1.0
+            if profile_dpi is not None and effective_dpi and float(profile_dpi) > 0:
+                dpi_scale_applied = float(profile_dpi) / float(effective_dpi)
+                mm_per_px *= dpi_scale_applied
+
             metrics.length_mm = metrics.length_px * mm_per_px
             metrics.forefoot_width_mm = metrics.forefoot_width_px * mm_per_px
             metrics.heel_width_mm = metrics.heel_width_px * mm_per_px
@@ -179,6 +185,9 @@ def _analyze_one(
                 "profile_name": profile.get("name", profile_path.stem),
                 "mm_per_px": mm_per_px,
                 "equivalent_dpi": (25.4 / mm_per_px) if mm_per_px > 0 else None,
+                "profile_source_dpi": profile_dpi,
+                "analysis_effective_dpi": effective_dpi,
+                "dpi_scale_applied": dpi_scale_applied,
             }
 
     heatmap_u8 = (contact_rel * 255.0).clip(0, 255).astype("uint8")
@@ -317,6 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     cal_m_p.add_argument("--output_profile", type=str, default="outputs/scanner_profile_manual.json")
     cal_m_p.add_argument("--name", type=str, default="manual_scanner")
     cal_m_p.add_argument("--input", type=str, default=None, help="Ruta de imagen usada como referencia manual (opcional).")
+    cal_m_p.add_argument("--dpi", type=int, default=300, help="DPI nominal de la imagen usada para calibración manual.")
 
     return parser
 
@@ -343,6 +353,7 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
             "name": args.name,
             "timestamp": timestamp_iso(),
             "input_file": str(input_path),
+            "source_dpi": float(args.dpi),
             "reference_length_mm": float(args.ref_mm),
             "measured_length_px": float(metrics.length_px),
             "mm_per_px": mm_per_px,
@@ -379,6 +390,7 @@ def cmd_calibrate_manual(args: argparse.Namespace) -> int:
             "timestamp": timestamp_iso(),
             "mode": "manual_y_points",
             "input_file": str(args.input) if args.input else None,
+            "source_dpi": float(args.dpi) if args.dpi else None,
             "reference_length_mm": float(args.ref_mm),
             "manual_y_heel_px": float(args.y_heel),
             "manual_y_toe_px": float(args.y_toe),
@@ -453,7 +465,8 @@ def cmd_batch(args: argparse.Namespace) -> int:
         print(f"No se encontraron imágenes en {in_dir}")
         return 1
 
-    ok = 0
+    success = 0
+    quality_ok = 0
     warn = 0
     trim_warn = 0
     trim_ratios: List[float] = []
@@ -484,6 +497,8 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 status = str(metrics.get("quality_status", "ok"))
                 if status == "warn":
                     warn += 1
+                else:
+                    quality_ok += 1
                 trim_ratio = float(meta.get("trim_ratio", 0.0))
                 trim_ratios.append(trim_ratio)
                 quality_warnings = metrics.get("quality_warnings", [])
@@ -504,7 +519,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 if status == "warn":
                     flagged.append(row)
 
-            ok += 1
+            success += 1
             print(f"OK: {image_path}")
         except Exception as e:
             print(f"Fallo: {image_path} -> {e}")
@@ -514,10 +529,11 @@ def cmd_batch(args: argparse.Namespace) -> int:
         "input_dir": str(in_dir),
         "output_dir": str(out_dir),
         "total": len(files),
-        "ok": ok,
+        "success": success,
+        "ok": quality_ok,
         "warn": warn,
         "warn_trim": trim_warn,
-        "fail": len(files) - ok,
+        "fail": len(files) - success,
         "trim_ratio_avg": (sum(trim_ratios) / len(trim_ratios)) if trim_ratios else 0.0,
         "top_trim_files": sorted(analyzed, key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
         "top_warn_files": sorted(flagged, key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
@@ -526,9 +542,9 @@ def cmd_batch(args: argparse.Namespace) -> int:
     summary_path = out_dir / "batch_summary.json"
     save_json(summary_path, summary)
 
-    print(f"Batch finalizado. Éxitos: {ok}/{len(files)} | Warn: {warn} | Warn(trim): {trim_warn}")
+    print(f"Batch finalizado. Éxitos: {success}/{len(files)} | OK calidad: {quality_ok} | Warn: {warn} | Warn(trim): {trim_warn}")
     print(f"Resumen batch: {summary_path}")
-    return 0 if ok > 0 else 1
+    return 0 if success > 0 else 1
 
 
 def main() -> int:

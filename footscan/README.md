@@ -97,7 +97,7 @@ python footscan.py analyze --input "samples/dummy_foot.png" --output_dir outputs
 python footscan.py batch --input "samples" --output_dir outputs --dpi 300 --foot auto
 ```
 
-Al finalizar, `batch` guarda `outputs/batch_summary.json` con conteo de `ok/warn/fail`, `warn_trim`, promedio de `trim_ratio`, `top_trim_files` (mayor recorte) y `top_warn_files` (casos en warning) para revisión rápida.
+Al finalizar, `batch` guarda `outputs/batch_summary.json` con conteo de `success/ok/warn/fail`, `warn_trim`, promedio de `trim_ratio`, `top_trim_files` (mayor recorte) y `top_warn_files` (casos en warning) para revisión rápida.
 
 ### 4) Calibración de escala (mm/px)
 
@@ -112,8 +112,10 @@ python footscan.py calibrate --input "samples/dummy_foot.png" --ref_mm 225 --out
 Si mediste manualmente que el talón está en `y=800 px` y el dedo en `y=6050 px`:
 
 ```bash
-python footscan.py calibrate-manual --y_heel 800 --y_toe 6050 --ref_mm 225 --output_profile "outputs/scanner_profile_manual.json" --name "scanner_consultorio_manual" --input "samples/002.png"
+python footscan.py calibrate-manual --y_heel 800 --y_toe 6050 --ref_mm 225 --dpi 600 --output_profile "outputs/scanner_profile_manual.json" --name "scanner_consultorio_manual" --input "samples/002.png"
 ```
+
+Los perfiles guardan `source_dpi`; al analizar, si `--profile` y `--dpi` difieren, FootScan ajusta automáticamente `mm_per_px` por el ratio `source_dpi / effective_dpi` para mantener consistencia de escala entre 300/600 DPI.
 
 ## Salidas
 
