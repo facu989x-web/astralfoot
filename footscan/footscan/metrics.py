@@ -223,6 +223,71 @@ def _line_endpoints_from_l(
     return (float(p1[1]), float(p1[0])), (float(p2[1]), float(p2[0]))
 
 
+def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, float]:
+    """Trim lateral outliers in midfoot using adaptive, section-wise limits."""
+    if points_xy.shape[0] < 200:
+        return points_xy, 0.0
+
+    centroid_xy, axis_xy = _pca_axis(points_xy)
+    perp_xy = np.array([-axis_xy[1], axis_xy[0]], dtype=np.float32)
+    rel = points_xy - centroid_xy
+    l = rel @ axis_xy
+    w = rel @ perp_xy
+
+    l_min, l_max = float(np.min(l)), float(np.max(l))
+    length = float(l_max - l_min)
+    if length <= 1e-6:
+        return points_xy, 0.0
+
+    l_norm = (l - l_min) / (length + 1e-8)
+    fore_m = l_norm >= (2.0 / 3.0)
+    heel_m = l_norm <= (1.0 / 3.0)
+    mid_m = (l_norm > (1.0 / 3.0)) & (l_norm < (2.0 / 3.0))
+
+    if np.count_nonzero(mid_m) < 120 or np.count_nonzero(fore_m) < 80 or np.count_nonzero(heel_m) < 80:
+        return points_xy, 0.0
+
+    fore_span = float(np.percentile(w[fore_m], 95) - np.percentile(w[fore_m], 5))
+    heel_span = float(np.percentile(w[heel_m], 95) - np.percentile(w[heel_m], 5))
+    target_span = max(1.0, min(fore_span, heel_span) * 0.92)
+
+    keep = np.ones(points_xy.shape[0], dtype=bool)
+    bins = np.linspace(1.0 / 3.0, 2.0 / 3.0, 25)
+    for i in range(len(bins) - 1):
+        lo, hi = bins[i], bins[i + 1]
+        b = (l_norm >= lo) & (l_norm < hi)
+        if np.count_nonzero(b) < 20:
+            continue
+
+        w_bin = w[b]
+        center = float(np.median(w_bin))
+        q10 = float(np.percentile(w_bin, 10))
+        q90 = float(np.percentile(w_bin, 90))
+        span = q90 - q10
+
+        if span > target_span:
+            half = 0.5 * target_span
+            lo_w = center - half
+            hi_w = center + half
+        else:
+            lo_w = float(np.percentile(w_bin, 3))
+            hi_w = float(np.percentile(w_bin, 97))
+
+        idx = np.where(b)[0]
+        keep[idx] = (w[idx] >= lo_w) & (w[idx] <= hi_w)
+
+    removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep))
+    if removed <= 0:
+        return points_xy, 0.0
+
+    trimmed = points_xy[keep]
+    if trimmed.shape[0] < 200:
+        return points_xy, 0.0
+
+    removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
+    return trimmed, removed_ratio
+
+
 def compute_metrics(
     mask: np.ndarray,
     corrected_gray: np.ndarray,
@@ -237,6 +302,7 @@ def compute_metrics(
         raise ValueError("Máscara insuficiente para calcular métricas.")
 
     points_xy = np.column_stack([xs.astype(np.float32), ys.astype(np.float32)])
+    points_xy, trim_ratio = _trim_midfoot_lateral_outliers(points_xy)
     centroid_xy, axis_xy = _pca_axis(points_xy)
     perp_xy = np.array([-axis_xy[1], axis_xy[0]], dtype=np.float32)
 
@@ -335,6 +401,8 @@ def compute_metrics(
         # Keep interior visible in heatmap while preserving dynamic contrast.
         contact_rel[heatmap_mask > 0] = 0.08 + (0.92 * contact_rel[heatmap_mask > 0])
 
+    ys_q = points_xy[:, 1]
+    xs_q = points_xy[:, 0]
     quality_status, quality_warnings = _quality_checks(
         length_px,
         forefoot_width_px,
@@ -342,9 +410,12 @@ def compute_metrics(
         midfoot_min_width_px,
         float(arch_index),
         area_px,
-        ys,
-        xs,
+        ys_q,
+        xs_q,
     )
+    if trim_ratio >= 0.12:
+        quality_warnings = tuple(list(quality_warnings) + [f"Recorte lateral adaptativo en mediopié aplicado ({trim_ratio * 100:.1f}% de puntos en mediopié)."] )
+        quality_status = "warn" if quality_status == "ok" else quality_status
 
     metrics = FootMetrics(
         foot_side=side,
