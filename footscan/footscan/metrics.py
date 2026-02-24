@@ -290,6 +290,15 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
             keep_local[idx] = (w[idx] >= lo_w) & (w[idx] <= hi_w)
         return keep_local
 
+    def _eval_keep(keep_mask: np.ndarray) -> Tuple[float, float]:
+        removed_local = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep_mask))
+        removed_ratio_local = removed_local / max(float(np.count_nonzero(mid_m)), 1.0)
+        mid_vals = w[mid_m][keep_mask[mid_m]]
+        mid_span_local = (
+            float(np.percentile(mid_vals, 95) - np.percentile(mid_vals, 5)) if mid_vals.size >= 40 else 0.0
+        )
+        return removed_ratio_local, mid_span_local
+
     keep = _build_keep(target_span)
 
     removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep))
@@ -302,13 +311,10 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
 
     # Guard-rail against over-trimming: if the midfoot becomes implausibly narrow,
     # rerun with a softer target span.
-    keep_mid = keep[mid_m]
-    mid_trim_vals = w[mid_m][keep_mid]
-    mid_span_after = float(np.percentile(mid_trim_vals, 95) - np.percentile(mid_trim_vals, 5)) if mid_trim_vals.size >= 40 else 0.0
+    removed_ratio, mid_span_after = _eval_keep(keep)
     min_mid_plausible_ref = max(1.0, 0.62 * min(fore_span, heel_span))
     min_mid_plausible_core = max(1.0, 1.12 * raw_mid_core_span)
     min_mid_plausible = max(min_mid_plausible_ref, min_mid_plausible_core)
-    removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
     relaxed_applied = False
 
     if mid_span_after > 0 and mid_span_after < min_mid_plausible and removed_ratio > 0.10:
@@ -320,8 +326,7 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
             if relaxed_span >= mid_span_after:
                 keep = keep_relaxed
                 trimmed = points_xy[keep]
-                removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep))
-                removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
+                removed_ratio, _ = _eval_keep(keep)
                 mid_span_after = relaxed_span
                 relaxed_applied = True
 
@@ -333,8 +338,7 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
         keep_soft = _build_keep(extra_soft_target)
         soft_trimmed = points_xy[keep_soft]
         if soft_trimmed.shape[0] >= 200:
-            soft_removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep_soft))
-            soft_removed_ratio = soft_removed / max(float(np.count_nonzero(mid_m)), 1.0)
+            soft_removed_ratio, _ = _eval_keep(keep_soft)
             if soft_removed_ratio < removed_ratio:
                 keep = keep_soft
                 trimmed = soft_trimmed
@@ -343,6 +347,35 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
                 if soft_mid.size >= 40:
                     mid_span_after = float(np.percentile(soft_mid, 95) - np.percentile(soft_mid, 5))
                 relaxed_applied = True
+
+    # Final selector among softer candidates to reduce heavy trimming on real scans.
+    if removed_ratio > 0.18:
+        candidates = [max(target_span, ref_span * k) for k in (0.98, 1.03, 1.08, 1.12)]
+        best_keep = keep
+        best_removed = removed_ratio
+        best_mid = mid_span_after
+        mid_target = max(1.0, 0.34 * fore_span)
+        best_score = (max(0.0, best_removed - 0.16) * 2.0) + max(0.0, (mid_target - best_mid) / mid_target)
+
+        for t in candidates:
+            cand_keep = _build_keep(t)
+            cand_trimmed = points_xy[cand_keep]
+            if cand_trimmed.shape[0] < 200:
+                continue
+            cand_removed, cand_mid = _eval_keep(cand_keep)
+            score = (max(0.0, cand_removed - 0.16) * 2.0) + max(0.0, (mid_target - cand_mid) / mid_target)
+            if score < best_score:
+                best_keep = cand_keep
+                best_removed = cand_removed
+                best_mid = cand_mid
+                best_score = score
+
+        if best_score < (max(0.0, removed_ratio - 0.16) * 2.0) + max(0.0, (max(1.0, 0.34 * fore_span) - mid_span_after) / max(1.0, 0.34 * fore_span)):
+            keep = best_keep
+            trimmed = points_xy[keep]
+            removed_ratio = best_removed
+            mid_span_after = best_mid
+            relaxed_applied = True
 
     recovery_level = 0.0
     if relaxed_applied:
