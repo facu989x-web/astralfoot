@@ -303,12 +303,12 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     keep_mid = keep[mid_m]
     mid_trim_vals = w[mid_m][keep_mid]
     mid_span_after = float(np.percentile(mid_trim_vals, 95) - np.percentile(mid_trim_vals, 5)) if mid_trim_vals.size >= 40 else 0.0
-    min_mid_plausible = max(1.0, 0.55 * min(fore_span, heel_span))
+    min_mid_plausible = max(1.0, 0.62 * min(fore_span, heel_span))
     removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
     relaxed_applied = False
 
-    if mid_span_after > 0 and mid_span_after < min_mid_plausible and removed_ratio > 0.18:
-        relaxed_target = max(target_span, ref_span * 0.72)
+    if mid_span_after > 0 and mid_span_after < min_mid_plausible and removed_ratio > 0.16:
+        relaxed_target = max(target_span, ref_span * 0.80)
         keep_relaxed = _build_keep(relaxed_target)
         relaxed_mid = w[mid_m][keep_relaxed[mid_m]]
         if relaxed_mid.size >= 40:
@@ -319,6 +319,24 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
                 removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep))
                 removed_ratio = removed / max(float(np.count_nonzero(mid_m)), 1.0)
                 mid_span_after = relaxed_span
+                relaxed_applied = True
+
+    # Hard ceiling for aggressive cleanup. If still too many points were removed,
+    # use an extra-soft pass to preserve anatomic plausibility.
+    if removed_ratio > 0.24:
+        extra_soft_target = max(target_span, ref_span * 0.86)
+        keep_soft = _build_keep(extra_soft_target)
+        soft_trimmed = points_xy[keep_soft]
+        if soft_trimmed.shape[0] >= 200:
+            soft_removed = int(np.count_nonzero(mid_m) - np.count_nonzero(mid_m & keep_soft))
+            soft_removed_ratio = soft_removed / max(float(np.count_nonzero(mid_m)), 1.0)
+            if soft_removed_ratio < removed_ratio:
+                keep = keep_soft
+                trimmed = soft_trimmed
+                removed_ratio = soft_removed_ratio
+                soft_mid = w[mid_m][keep[mid_m]]
+                if soft_mid.size >= 40:
+                    mid_span_after = float(np.percentile(soft_mid, 95) - np.percentile(soft_mid, 5))
                 relaxed_applied = True
 
     return trimmed, removed_ratio, {
