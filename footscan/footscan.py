@@ -124,6 +124,66 @@ def _crop_to_bbox(image_bgr, bbox: Tuple[int, int, int, int], margin_ratio: floa
 
 
 
+
+
+def _build_subzone_enhancement(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Tuple[Dict[str, Dict[str, float]], np.ndarray]:
+    """Compute finer sub-zone statistics and a labeled enhancement map."""
+    h, w = mask.shape[:2]
+    subzone_map = np.zeros((h, w), dtype=np.uint8)
+    ys, xs = np.where(mask > 0)
+    if ys.size == 0:
+        return {}, subzone_map
+
+    heel_pt, toe_pt = metrics.length_endpoints_yx
+    heel_xy = np.array([float(heel_pt[1]), float(heel_pt[0])], dtype=np.float32)
+    toe_xy = np.array([float(toe_pt[1]), float(toe_pt[0])], dtype=np.float32)
+    axis = toe_xy - heel_xy
+    axis_norm2 = float(np.dot(axis, axis))
+
+    pts = np.column_stack([xs.astype(np.float32), ys.astype(np.float32)])
+    if axis_norm2 <= 1e-6:
+        t = (ys.astype(np.float32) - ys.min()) / max(float(ys.max() - ys.min()), 1.0)
+        axis_unit = np.array([1.0, 0.0], dtype=np.float32)
+    else:
+        t = np.dot(pts - heel_xy[None, :], axis) / axis_norm2
+        axis_unit = axis / max(np.sqrt(axis_norm2), 1e-6)
+    t = np.clip(t, 0.0, 1.0)
+
+    perp = np.array([-axis_unit[1], axis_unit[0]], dtype=np.float32)
+    s = np.dot(pts - heel_xy[None, :], perp)
+    s_med = float(np.median(s))
+
+    cvals = contact_rel[ys, xs].astype(np.float32)
+
+    zone_defs = [
+        ("heel", 0.00, 0.33),
+        ("midfoot", 0.33, 0.67),
+        ("forefoot", 0.67, 0.90),
+        ("toes", 0.90, 1.01),
+    ]
+
+    subzones: Dict[str, Dict[str, float]] = {}
+    label_id = 1
+    for zone_name, lo, hi in zone_defs:
+        zmask = (t >= lo) & (t < hi)
+        for side_name, side_mask in [("medial", s >= s_med), ("lateral", s < s_med)]:
+            m = zmask & side_mask
+            key = f"{zone_name}_{side_name}"
+            if not np.any(m):
+                subzones[key] = {"mean_contact_rel": 0.0, "high_contact_ratio": 0.0, "pixel_share": 0.0}
+            else:
+                zvals = cvals[m]
+                subzones[key] = {
+                    "mean_contact_rel": float(np.mean(zvals)),
+                    "high_contact_ratio": float(np.mean(zvals >= 0.70)),
+                    "pixel_share": float(np.mean(m)),
+                }
+                subzone_map[ys[m], xs[m]] = label_id
+            label_id += 1
+
+    return subzones, subzone_map
+
+
 def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict[str, Any]:
     """Build simple anatomical-zone findings for technical triage."""
     ys, xs = np.where(mask > 0)
@@ -310,6 +370,8 @@ def _analyze_one(
 
     overlay = _draw_overlay(image_roi, seg.contour, metrics)
     findings = _derive_findings(seg.mask, contact_rel, metrics)
+    subzones, subzone_map = _build_subzone_enhancement(seg.mask, contact_rel, metrics)
+    findings["subzones"] = subzones
 
     stem = input_path.stem
     overlay_path = output_dir / f"{stem}_overlay.png"
@@ -387,6 +449,12 @@ def _analyze_one(
                 output_dir / f"{stem}_debug_clean_model_overlay.png",
                 _draw_mask_overlay(image_roi, clean_model_mask),
             )
+        enhanced_u8 = ((contact_rel * 255.0).clip(0, 255)).astype("uint8")
+        enhanced_color = cv2.applyColorMap(enhanced_u8, cv2.COLORMAP_TURBO)
+        enhanced_color[seg.mask == 0] = (0, 0, 0)
+        boundaries = cv2.Canny((subzone_map > 0).astype("uint8") * 255, 40, 100)
+        enhanced_color[boundaries > 0] = (255, 255, 255)
+        save_image(output_dir / f"{stem}_debug_enhanced_map.png", enhanced_color)
         for key, img in prep.items():
             save_image(output_dir / f"{stem}_debug_pre_{key}.png", img)
         for key, img in seg.debug_images.items():

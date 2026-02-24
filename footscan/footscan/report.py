@@ -63,6 +63,8 @@ def _metric_rows(results: Dict) -> List[Tuple[str, str]]:
     observations = findings.get("observations") or []
     if observations:
         rows.append(("Observaciones", " | ".join(str(o) for o in observations)))
+    if findings.get("subzones"):
+        rows.append(("Subzonas", "Detalle de subzonas medial/lateral disponible en results.json"))
     return rows
 
 
