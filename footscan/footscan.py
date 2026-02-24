@@ -512,6 +512,8 @@ def build_parser() -> argparse.ArgumentParser:
     cal_m_p.add_argument("--input", type=str, default=None, help="Ruta de imagen usada como referencia manual (opcional).")
     cal_m_p.add_argument("--dpi", type=int, default=300, help="DPI nominal de la imagen usada para calibración manual.")
 
+    sub.add_parser("gui", help="Abre interfaz gráfica para importar/escanear, ver heatmap y marcar puntos manuales.")
+
     return parser
 
 
@@ -596,6 +598,13 @@ def cmd_calibrate_manual(args: argparse.Namespace) -> int:
         return 1
 
 
+
+
+def cmd_gui(_args: argparse.Namespace) -> int:
+    from footscan.gui import launch_gui
+
+    launch_gui()
+    return 0
 def cmd_scan(args: argparse.Namespace) -> int:
     out_dir = ensure_dir(Path(args.output_dir))
     try:
@@ -752,6 +761,8 @@ def main() -> int:
         return cmd_calibrate(args)
     if args.command == "calibrate-manual":
         return cmd_calibrate_manual(args)
+    if args.command == "gui":
+        return cmd_gui(args)
 
     parser.print_help()
     return 1

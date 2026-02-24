@@ -6,11 +6,12 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
 
 ## Funcionalidades
 
-- CLI con 3 comandos:
+- CLI con comandos de consola y GUI:
   - `scan`: intenta adquirir imagen del escáner (WIA/TWAIN) y guarda raw.
   - `analyze`: procesa una imagen y genera `overlay.png`, `mask.png`, `heatmap.png`, `results.json`, `report.pdf`.
   - `batch`: procesa una carpeta completa.
   - `calibrate`: crea perfil de calibración `mm_per_px` usando largo real conocido.
+  - `gui`: interfaz gráfica para importar/escanear, ver heatmap en grilla y marcar puntos/manual notes.
   - `analyze` y `batch` muestran progreso por etapas en consola para seguimiento.
 - Pipeline de visión por computadora:
   1. Escala de grises.
@@ -118,6 +119,20 @@ python footscan.py calibrate-manual --y_heel 800 --y_toe 6050 --ref_mm 225 --dpi
 
 Los perfiles guardan `source_dpi`; al analizar, si `--profile` y `--dpi` difieren, FootScan ajusta automáticamente `mm_per_px` por el ratio `source_dpi / effective_dpi` para mantener consistencia de escala entre 300/600 DPI.
 
+
+### 6) GUI para marcar puntos sobre heatmap
+
+```bash
+python footscan.py gui
+```
+
+La GUI permite:
+- importar imagen o intentar escaneo,
+- generar heatmap de fondo,
+- marcar puntos manuales sobre una cuadrícula,
+- agregar comentarios/realces,
+- exportar un JSON de anotaciones para fabricación/seguimiento.
+
 ## Salidas
 
 Para una entrada `dummy_foot.png` se generan:
@@ -127,7 +142,8 @@ Para una entrada `dummy_foot.png` se generan:
 - `outputs/dummy_foot_heatmap.png`
 - `outputs/dummy_foot_results.json` (incluye `findings` con contactos zonales, acción sugerida, severidad, `review_score`, `observations` y `subzones`)
 - `outputs/dummy_foot_report.pdf`
-- además, con `--debug`, imágenes intermedias del pipeline, incluyendo `debug_full_with_roi_box`, `debug_roi_mask_overlay`, `debug_clean_model_mask` y `debug_clean_model_overlay` y `debug_enhanced_map` para comparar máscara base vs modelo limpio y realces por subzonas.
+- además, con `--debug`, imágenes intermedias del pipeline, incluyendo `debug_full_with_roi_box`, `debug_roi_mask_overlay`, `debug_clean_model_mask`, `debug_clean_model_overlay` y `debug_enhanced_map` para comparar máscara base vs modelo limpio y realces por subzonas.
+- en GUI podés exportar `annotations.json` con puntos manuales + comentarios sobre el heatmap.
 
 ## Notas de adquisición (WIA/TWAIN)
 
