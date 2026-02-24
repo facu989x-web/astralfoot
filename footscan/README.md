@@ -134,6 +134,7 @@ La GUI permite:
 - marcar puntos manuales sobre una cuadrícula,
 - agregar comentarios/realces,
 - exportar un JSON de anotaciones para fabricación/seguimiento.
+- si hay 3+ puntos, exportar también recorte poligonal del heatmap (`*_heatmap_crop.png` + máscara).
 
 
 ### 7) Preparación para EXE (PyInstaller)
@@ -157,7 +158,7 @@ Para una entrada `dummy_foot.png` se generan:
 - `outputs/dummy_foot_results.json` (incluye `findings` con contactos zonales, acción sugerida, severidad, `review_score`, `observations` y `subzones`)
 - `outputs/dummy_foot_report.pdf`
 - además, con `--debug`, imágenes intermedias del pipeline, incluyendo `debug_full_with_roi_box`, `debug_roi_mask_overlay`, `debug_clean_model_mask`, `debug_clean_model_overlay` y `debug_enhanced_map` para comparar máscara base vs modelo limpio y realces por subzonas.
-- en GUI podés exportar `annotations.json` con puntos manuales + comentarios sobre el heatmap.
+- en GUI podés exportar `annotations.json` con puntos manuales + comentarios sobre el heatmap, y recorte poligonal para usar directo en plantilla.
 
 ## Notas de adquisición (WIA/TWAIN)
 

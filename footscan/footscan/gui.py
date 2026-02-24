@@ -15,7 +15,7 @@ from footscan.acquire import acquire_from_scanner
 from footscan.metrics import compute_metrics
 from footscan.preprocess import preprocess_image
 from footscan.segment import segment_footprint
-from footscan.utils import ensure_dir, load_image_any, save_json, timestamp_iso
+from footscan.utils import ensure_dir, load_image_any, save_image, save_json, timestamp_iso
 
 
 class FootScanGUI:
@@ -248,8 +248,33 @@ class FootScanGUI:
             "metrics_preview": self.metrics,
         }
         try:
-            save_json(Path(out), payload)
-            self._set_status(f"Marcas exportadas: {Path(out).name}")
+            out_path = Path(out)
+            save_json(out_path, payload)
+
+            # Export polygon crop from current display (typically heatmap) for plantilla workflow.
+            if len(self.points_image) >= 3 and self.display_bgr is not None:
+                poly = np.array(self.points_image, dtype=np.int32).reshape((-1, 1, 2))
+                base = self.display_bgr.copy()
+                mask = np.zeros(base.shape[:2], dtype=np.uint8)
+                cv2.fillPoly(mask, [poly], 255)
+                masked = cv2.bitwise_and(base, base, mask=mask)
+                x, y, w, h = cv2.boundingRect(poly)
+
+                crop = masked[y : y + h, x : x + w]
+                crop_mask = mask[y : y + h, x : x + w]
+                crop_path = out_path.with_name(out_path.stem + "_heatmap_crop.png")
+                mask_path = out_path.with_name(out_path.stem + "_heatmap_crop_mask.png")
+                save_image(crop_path, crop)
+                save_image(mask_path, crop_mask)
+
+                payload["crop_export"] = {
+                    "crop_file": str(crop_path),
+                    "mask_file": str(mask_path),
+                    "bbox_xywh": [int(x), int(y), int(w), int(h)],
+                }
+                save_json(out_path, payload)
+
+            self._set_status(f"Marcas exportadas: {out_path.name}")
             messagebox.showinfo("OK", f"Archivo guardado:\n{out}")
         except Exception as exc:
             messagebox.showerror("Error", f"No se pudo guardar JSON: {exc}")
