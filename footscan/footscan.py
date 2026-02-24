@@ -455,8 +455,10 @@ def cmd_batch(args: argparse.Namespace) -> int:
 
     ok = 0
     warn = 0
+    trim_warn = 0
     trim_ratios: List[float] = []
     flagged: List[Dict[str, Any]] = []
+    analyzed: List[Dict[str, Any]] = []
     out_dir = Path(args.output_dir)
     for idx, image_path in enumerate(files, start=1):
         try:
@@ -484,16 +486,23 @@ def cmd_batch(args: argparse.Namespace) -> int:
                     warn += 1
                 trim_ratio = float(meta.get("trim_ratio", 0.0))
                 trim_ratios.append(trim_ratio)
+                quality_warnings = metrics.get("quality_warnings", [])
+                has_trim_warning = any("Recorte lateral adaptativo en mediopié" in str(w) for w in quality_warnings)
+                if has_trim_warning:
+                    trim_warn += 1
+
+                row = {
+                    "file": str(image_path),
+                    "quality_status": status,
+                    "trim_ratio": trim_ratio,
+                    "midfoot_mm": metrics.get("midfoot_min_width_mm"),
+                    "forefoot_mm": metrics.get("forefoot_width_mm"),
+                    "quality_warnings": quality_warnings,
+                }
+                analyzed.append(row)
+
                 if status == "warn":
-                    flagged.append(
-                        {
-                            "file": str(image_path),
-                            "trim_ratio": trim_ratio,
-                            "midfoot_mm": metrics.get("midfoot_min_width_mm"),
-                            "forefoot_mm": metrics.get("forefoot_width_mm"),
-                            "quality_warnings": metrics.get("quality_warnings", []),
-                        }
-                    )
+                    flagged.append(row)
 
             ok += 1
             print(f"OK: {image_path}")
@@ -507,15 +516,17 @@ def cmd_batch(args: argparse.Namespace) -> int:
         "total": len(files),
         "ok": ok,
         "warn": warn,
+        "warn_trim": trim_warn,
         "fail": len(files) - ok,
         "trim_ratio_avg": (sum(trim_ratios) / len(trim_ratios)) if trim_ratios else 0.0,
-        "top_trim_files": sorted(flagged, key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
+        "top_trim_files": sorted(analyzed, key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
+        "top_warn_files": sorted(flagged, key=lambda x: float(x.get("trim_ratio", 0.0)), reverse=True)[:5],
     }
     ensure_dir(out_dir)
     summary_path = out_dir / "batch_summary.json"
     save_json(summary_path, summary)
 
-    print(f"Batch finalizado. Éxitos: {ok}/{len(files)} | Warn: {warn}")
+    print(f"Batch finalizado. Éxitos: {ok}/{len(files)} | Warn: {warn} | Warn(trim): {trim_warn}")
     print(f"Resumen batch: {summary_path}")
     return 0 if ok > 0 else 1
 
