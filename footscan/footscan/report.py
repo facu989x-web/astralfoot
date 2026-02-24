@@ -48,6 +48,10 @@ def _metric_rows(results: Dict) -> List[Tuple[str, str]]:
     action = findings.get("action")
     if action:
         rows.append(("Sugerencia automática", str(action)))
+    if findings.get("severity") is not None:
+        rows.append(("Severidad hallazgos", str(findings.get("severity"))))
+    if findings.get("review_score") is not None:
+        rows.append(("Score revisión", f"{int(findings.get('review_score', 0))}/100"))
     zones = findings.get("zones") or {}
     for key, label in [("heel", "Contacto talón"), ("midfoot", "Contacto mediopié"), ("forefoot", "Contacto antepié"), ("toes", "Contacto dedos")]:
         z = zones.get(key)

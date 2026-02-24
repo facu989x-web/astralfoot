@@ -128,7 +128,13 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
     """Build simple anatomical-zone findings for technical triage."""
     ys, xs = np.where(mask > 0)
     if ys.size == 0:
-        return {"zones": {}, "flags": ["Máscara vacía; repetir captura."], "action": "repeat_scan"}
+        return {
+            "zones": {},
+            "flags": ["Máscara vacía; repetir captura."],
+            "action": "repeat_scan",
+            "review_score": 100,
+            "severity": "high",
+        }
 
     heel_pt, toe_pt = metrics.length_endpoints_yx
     heel_xy = np.array([float(heel_pt[1]), float(heel_pt[0])], dtype=np.float32)
@@ -164,6 +170,7 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
         }
 
     flags: List[str] = []
+    score = 0
     mid = zones["midfoot"]["mean_contact_rel"]
     fore = zones["forefoot"]["mean_contact_rel"]
     heel = zones["heel"]["mean_contact_rel"]
@@ -172,20 +179,36 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
 
     if fore > 0 and (mid / fore) < 0.72:
         flags.append("Mediopié relativamente bajo frente a antepié (revisar arco y/o posible sobre-recorte).")
+        score += 30
     if zones["toes"]["high_contact_ratio"] < 0.05:
         flags.append("Contacto alto en dedos bajo; revisar postura/captura.")
+        score += 15
     if abs(heel - fore) > 0.18:
         flags.append("Desbalance marcado entre talón y antepié en contacto relativo.")
+        score += 25
     if toes_high > 0.98 and toes_share > 0.05:
         flags.append("Dedos con saturación alta de contacto relativo; verificar contraste o normalización.")
+        score += 20
+
+    if metrics.quality_status != "ok":
+        score += 35
+
+    score = int(max(0, min(100, score)))
+    severity = "low" if score < 30 else ("medium" if score < 60 else "high")
 
     action = "ok"
-    if flags:
+    if flags or score >= 30:
         action = "review"
     if metrics.quality_status != "ok":
         action = "repeat_scan" if any("contaminación" in str(w).lower() for w in metrics.quality_warnings) else "review"
 
-    return {"zones": zones, "flags": flags, "action": action}
+    return {
+        "zones": zones,
+        "flags": flags,
+        "action": action,
+        "review_score": score,
+        "severity": severity,
+    }
 
 
 def _analyze_one(
