@@ -29,7 +29,7 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
   - Centroide.
   - Eje principal y ángulo.
 - Mapa de intensidad de contacto relativo (ponderado para evitar artefactos de borde y conservar detalle dentro de la planta).
-- Control automático de calidad en métricas (banderas `quality_status` y `quality_warnings` en JSON/PDF), con aviso de recorte adaptativo priorizando casos de recorte pesado o mediopié aún estrecho.
+- Control automático de calidad en métricas (banderas `quality_status` y `quality_warnings` en JSON/PDF), con aviso de recorte adaptativo priorizando casos de recorte pesado o mediopié claramente estrecho.
 - Regla adaptativa de recorte lateral en mediopié para reducir contaminación por sombras laterales en anchos/arco, con detección automática de basura, agresividad suavizada, salvaguarda anti sobre-recorte, tope de agresión y selector final de suavidad para priorizar mediopié anatómico.
 
 ## Estructura

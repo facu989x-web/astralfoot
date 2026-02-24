@@ -544,9 +544,9 @@ def compute_metrics(
         ys_q,
         xs_q,
     )
-    # Warn on heavy trimming, or moderate trimming with still narrow midfoot.
+    # Warn on heavy trimming, or moderate trimming with clearly narrow midfoot.
     mid_ratio = (midfoot_min_width_px / max(forefoot_width_px, 1e-6)) if forefoot_width_px > 0 else 0.0
-    if trim_ratio >= 0.22 or (trim_ratio >= 0.16 and mid_ratio < 0.36):
+    if trim_ratio >= 0.24 or (trim_ratio >= 0.18 and mid_ratio < 0.33):
         quality_warnings = tuple(list(quality_warnings) + [f"Recorte lateral adaptativo en mediopié aplicado ({trim_ratio * 100:.1f}% de puntos en mediopié)."] )
         quality_status = "warn" if quality_status == "ok" else quality_status
 
