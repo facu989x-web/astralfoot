@@ -209,16 +209,25 @@ class FootScanGUI:
 
         grid_step = max(20, int(40 * self.scale))
         for x in range(self.off_x, self.off_x + nw, grid_step):
-            self.canvas.create_line(x, self.off_y, x, self.off_y + nh, fill="#ffffff22")
+            self.canvas.create_line(x, self.off_y, x, self.off_y + nh, fill="#333333")
         for y in range(self.off_y, self.off_y + nh, grid_step):
-            self.canvas.create_line(self.off_x, y, self.off_x + nw, y, fill="#ffffff22")
+            self.canvas.create_line(self.off_x, y, self.off_x + nw, y, fill="#333333")
 
         for i, (px, py) in enumerate(self.points_image, start=1):
             cx = self.off_x + px * self.scale
             cy = self.off_y + py * self.scale
             r = 4
-            self.canvas.create_oval(cx - r, cy - r, cx + r, cy + r, fill="#ff3030", outline="#ffffff")
+            self.canvas.create_rectangle(cx - r, cy - r, cx + r, cy + r, fill="#ff3030", outline="#ffffff")
             self.canvas.create_text(cx + 9, cy - 9, text=str(i), fill="#ffffff", anchor=tk.NW)
+
+        if len(self.points_image) >= 2:
+            prev = None
+            for px, py in self.points_image:
+                cx = self.off_x + px * self.scale
+                cy = self.off_y + py * self.scale
+                if prev is not None:
+                    self.canvas.create_line(prev[0], prev[1], cx, cy, fill="#00e5ff", width=2)
+                prev = (cx, cy)
 
     def on_export(self) -> None:
         if self.current_path is None:
