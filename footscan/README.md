@@ -30,6 +30,7 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
   - Eje principal y ángulo.
 - Mapa de intensidad de contacto relativo (ponderado para evitar artefactos de borde y conservar detalle dentro de la planta).
 - Control automático de calidad en métricas (banderas `quality_status` y `quality_warnings` en JSON/PDF), con aviso de recorte adaptativo priorizando casos de recorte pesado o mediopié claramente estrecho.
+- Bloque `findings` en JSON/PDF con zonas anatómicas (talón/mediopié/antepié/dedos), hallazgos técnicos y acción sugerida (`ok/review/repeat_scan`).
 - Regla adaptativa de recorte lateral en mediopié para reducir contaminación por sombras laterales en anchos/arco, con detección automática de basura, agresividad suavizada, salvaguarda anti sobre-recorte, tope de agresión y selector final de suavidad para priorizar mediopié anatómico.
 
 ## Estructura
@@ -124,7 +125,7 @@ Para una entrada `dummy_foot.png` se generan:
 - `outputs/dummy_foot_overlay.png`
 - `outputs/dummy_foot_mask.png`
 - `outputs/dummy_foot_heatmap.png`
-- `outputs/dummy_foot_results.json`
+- `outputs/dummy_foot_results.json` (incluye `findings` con contactos zonales y acción sugerida)
 - `outputs/dummy_foot_report.pdf`
 - además, con `--debug`, imágenes intermedias del pipeline, incluyendo `debug_full_with_roi_box`, `debug_roi_mask_overlay`, `debug_clean_model_mask` y `debug_clean_model_overlay` para comparar máscara base vs modelo limpio.
 

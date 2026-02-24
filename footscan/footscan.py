@@ -122,6 +122,68 @@ def _crop_to_bbox(image_bgr, bbox: Tuple[int, int, int, int], margin_ratio: floa
     return cropped, crop_meta
 
 
+
+
+def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict[str, Any]:
+    """Build simple anatomical-zone findings for technical triage."""
+    ys, xs = np.where(mask > 0)
+    if ys.size == 0:
+        return {"zones": {}, "flags": ["Máscara vacía; repetir captura."], "action": "repeat_scan"}
+
+    heel_pt, toe_pt = metrics.length_endpoints_yx
+    heel_xy = np.array([float(heel_pt[1]), float(heel_pt[0])], dtype=np.float32)
+    toe_xy = np.array([float(toe_pt[1]), float(toe_pt[0])], dtype=np.float32)
+    axis = toe_xy - heel_xy
+    axis_norm2 = float(np.dot(axis, axis))
+    if axis_norm2 <= 1e-6:
+        t = (ys.astype(np.float32) - ys.min()) / max(float(ys.max() - ys.min()), 1.0)
+    else:
+        pts = np.column_stack([xs.astype(np.float32), ys.astype(np.float32)])
+        t = np.dot(pts - heel_xy[None, :], axis) / axis_norm2
+    t = np.clip(t, 0.0, 1.0)
+
+    cvals = contact_rel[ys, xs].astype(np.float32)
+
+    zone_defs = [
+        ("heel", 0.00, 0.33),
+        ("midfoot", 0.33, 0.67),
+        ("forefoot", 0.67, 0.90),
+        ("toes", 0.90, 1.01),
+    ]
+    zones: Dict[str, Dict[str, float]] = {}
+    for name, lo, hi in zone_defs:
+        z = (t >= lo) & (t < hi)
+        if not np.any(z):
+            zones[name] = {"mean_contact_rel": 0.0, "high_contact_ratio": 0.0, "pixel_share": 0.0}
+            continue
+        zvals = cvals[z]
+        zones[name] = {
+            "mean_contact_rel": float(np.mean(zvals)),
+            "high_contact_ratio": float(np.mean(zvals >= 0.70)),
+            "pixel_share": float(np.mean(z)),
+        }
+
+    flags: List[str] = []
+    mid = zones["midfoot"]["mean_contact_rel"]
+    fore = zones["forefoot"]["mean_contact_rel"]
+    heel = zones["heel"]["mean_contact_rel"]
+
+    if mid < 0.35 * max(fore, 1e-6):
+        flags.append("Mediopié con contacto relativo bajo frente a antepié (posible arco alto o sobre-recorte).")
+    if zones["toes"]["high_contact_ratio"] < 0.05:
+        flags.append("Contacto alto en dedos bajo; revisar postura/captura.")
+    if abs(heel - fore) > 0.25:
+        flags.append("Desbalance marcado entre talón y antepié en contacto relativo.")
+
+    action = "ok"
+    if flags:
+        action = "review"
+    if metrics.quality_status != "ok":
+        action = "repeat_scan" if any("contaminación" in str(w).lower() for w in metrics.quality_warnings) else "review"
+
+    return {"zones": zones, "flags": flags, "action": action}
+
+
 def _analyze_one(
     input_path: Path,
     output_dir: Path,
@@ -195,6 +257,7 @@ def _analyze_one(
     heatmap[seg.mask == 0] = (0, 0, 0)
 
     overlay = _draw_overlay(image_roi, seg.contour, metrics)
+    findings = _derive_findings(seg.mask, contact_rel, metrics)
 
     stem = input_path.stem
     overlay_path = output_dir / f"{stem}_overlay.png"
@@ -217,6 +280,7 @@ def _analyze_one(
             "effective_dpi": effective_dpi,
             "version": "0.1.0",
         },
+        "findings": findings,
         "metrics": {
             "foot_side": metrics.foot_side,
             "length_px": metrics.length_px,

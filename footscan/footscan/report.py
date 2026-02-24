@@ -43,6 +43,19 @@ def _metric_rows(results: Dict) -> List[Tuple[str, str]]:
     warns = m.get("quality_warnings") or []
     if warns:
         rows.append(("Avisos calidad", " | ".join(warns)))
+
+    findings = results.get("findings") or {}
+    action = findings.get("action")
+    if action:
+        rows.append(("Sugerencia automática", str(action)))
+    zones = findings.get("zones") or {}
+    for key, label in [("heel", "Contacto talón"), ("midfoot", "Contacto mediopié"), ("forefoot", "Contacto antepié"), ("toes", "Contacto dedos")]:
+        z = zones.get(key)
+        if z:
+            rows.append((label, f"media {float(z.get('mean_contact_rel', 0.0)):.2f} | alto {float(z.get('high_contact_ratio', 0.0)) * 100.0:.1f}%"))
+    flags = findings.get("flags") or []
+    if flags:
+        rows.append(("Hallazgos", " | ".join(str(f) for f in flags)))
     return rows
 
 
