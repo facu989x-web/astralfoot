@@ -349,13 +349,13 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
                 relaxed_applied = True
 
     # Final selector among softer candidates to reduce heavy trimming on real scans.
-    if removed_ratio > 0.18:
-        candidates = [max(target_span, ref_span * k) for k in (0.98, 1.03, 1.08, 1.12)]
+    if removed_ratio > 0.16:
+        candidates = [max(target_span, ref_span * k) for k in (1.00, 1.05, 1.10, 1.16, 1.22)]
         best_keep = keep
         best_removed = removed_ratio
         best_mid = mid_span_after
         mid_target = max(1.0, 0.34 * fore_span)
-        best_score = (max(0.0, best_removed - 0.16) * 2.0) + max(0.0, (mid_target - best_mid) / mid_target)
+        best_score = (max(0.0, best_removed - 0.14) * 2.5) + max(0.0, (mid_target - best_mid) / mid_target)
 
         for t in candidates:
             cand_keep = _build_keep(t)
@@ -363,14 +363,14 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
             if cand_trimmed.shape[0] < 200:
                 continue
             cand_removed, cand_mid = _eval_keep(cand_keep)
-            score = (max(0.0, cand_removed - 0.16) * 2.0) + max(0.0, (mid_target - cand_mid) / mid_target)
+            score = (max(0.0, cand_removed - 0.14) * 2.5) + max(0.0, (mid_target - cand_mid) / mid_target)
             if score < best_score:
                 best_keep = cand_keep
                 best_removed = cand_removed
                 best_mid = cand_mid
                 best_score = score
 
-        if best_score < (max(0.0, removed_ratio - 0.16) * 2.0) + max(0.0, (max(1.0, 0.34 * fore_span) - mid_span_after) / max(1.0, 0.34 * fore_span)):
+        if best_score < (max(0.0, removed_ratio - 0.14) * 2.5) + max(0.0, (max(1.0, 0.34 * fore_span) - mid_span_after) / max(1.0, 0.34 * fore_span)):
             keep = best_keep
             trimmed = points_xy[keep]
             removed_ratio = best_removed
@@ -380,7 +380,7 @@ def _trim_midfoot_lateral_outliers(points_xy: np.ndarray) -> Tuple[np.ndarray, f
     recovery_level = 0.0
     if relaxed_applied:
         recovery_level = 1.0
-    if removed_ratio > 0.18:
+    if removed_ratio > 0.16:
         recovery_level = 2.0
 
     return trimmed, removed_ratio, {
@@ -544,7 +544,9 @@ def compute_metrics(
         ys_q,
         xs_q,
     )
-    if trim_ratio >= 0.18:
+    # Warn on heavy trimming, or moderate trimming with still narrow midfoot.
+    mid_ratio = (midfoot_min_width_px / max(forefoot_width_px, 1e-6)) if forefoot_width_px > 0 else 0.0
+    if trim_ratio >= 0.22 or (trim_ratio >= 0.16 and mid_ratio < 0.36):
         quality_warnings = tuple(list(quality_warnings) + [f"Recorte lateral adaptativo en mediopié aplicado ({trim_ratio * 100:.1f}% de puntos en mediopié)."] )
         quality_status = "warn" if quality_status == "ok" else quality_status
 
