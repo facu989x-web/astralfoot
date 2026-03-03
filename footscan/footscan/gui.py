@@ -23,7 +23,8 @@ class FootScanGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("FootScan GUI (MVP)")
-        self.root.geometry("1260x820")
+        self.root.geometry("1024x768")
+        self.root.minsize(980, 700)
 
         self.current_path: Optional[Path] = None
         self.image_bgr: Optional[np.ndarray] = None
@@ -53,45 +54,48 @@ class FootScanGUI:
         self._build_ui()
 
     def _build_ui(self) -> None:
-        container = ttk.Frame(self.root, padding=10)
+        container = ttk.Frame(self.root, padding=8)
         container.pack(fill=tk.BOTH, expand=True)
 
-        controls = ttk.Frame(container)
-        controls.pack(fill=tk.X, pady=(0, 8))
+        controls_top = ttk.Frame(container)
+        controls_top.pack(fill=tk.X, pady=(0, 4))
 
-        ttk.Button(controls, text="Importar imagen", command=self.on_import).pack(side=tk.LEFT, padx=4)
-        ttk.Button(controls, text="Escanear (stub)", command=self.on_scan).pack(side=tk.LEFT, padx=4)
-        ttk.Button(controls, text="Generar heatmap", command=self.on_analyze).pack(side=tk.LEFT, padx=4)
-        ttk.Button(controls, text="Auto-recortar pie", command=self.on_auto_crop_noise).pack(side=tk.LEFT, padx=4)
-        ttk.Button(controls, text="Importar medidas", command=self.on_import_measures).pack(side=tk.LEFT, padx=4)
-        ttk.Button(controls, text="Limpiar", command=self.on_clear_points).pack(side=tk.LEFT, padx=4)
-        ttk.Button(controls, text="Exportar", command=self.on_export).pack(side=tk.LEFT, padx=4)
+        ttk.Button(controls_top, text="Importar", command=self.on_import).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_top, text="Escanear", command=self.on_scan).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_top, text="Heatmap", command=self.on_analyze).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_top, text="Auto-recorte", command=self.on_auto_crop_noise).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_top, text="Importar medidas", command=self.on_import_measures).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_top, text="Limpiar", command=self.on_clear_points).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_top, text="Exportar", command=self.on_export).pack(side=tk.LEFT, padx=2)
 
-        ttk.Separator(controls, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
-        ttk.Button(controls, text="-", width=3, command=self.on_zoom_out).pack(side=tk.LEFT)
-        ttk.Button(controls, text="+", width=3, command=self.on_zoom_in).pack(side=tk.LEFT)
-        ttk.Button(controls, text="Ajustar", command=self.on_zoom_fit).pack(side=tk.LEFT, padx=(4, 10))
+        ttk.Separator(controls_top, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        ttk.Button(controls_top, text="-", width=2, command=self.on_zoom_out).pack(side=tk.LEFT)
+        ttk.Button(controls_top, text="+", width=2, command=self.on_zoom_in).pack(side=tk.LEFT)
+        ttk.Button(controls_top, text="Ajustar", command=self.on_zoom_fit).pack(side=tk.LEFT, padx=(4, 0))
 
-        ttk.Label(controls, text="Pie:").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Combobox(controls, textvariable=self.foot_var, values=["left", "right", "auto"], width=8, state="readonly").pack(side=tk.LEFT)
+        controls_bottom = ttk.Frame(container)
+        controls_bottom.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(controls, text="DPI:").pack(side=tk.LEFT, padx=(12, 4))
-        ttk.Entry(controls, textvariable=self.dpi_var, width=8).pack(side=tk.LEFT)
+        ttk.Label(controls_bottom, text="Pie:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Combobox(controls_bottom, textvariable=self.foot_var, values=["left", "right", "auto"], width=7, state="readonly").pack(side=tk.LEFT)
 
-        ttk.Label(controls, text="Modo:").pack(side=tk.LEFT, padx=(12, 4))
-        ttk.Radiobutton(controls, text="Marcar", value="mark", variable=self.mode_var).pack(side=tk.LEFT)
-        ttk.Radiobutton(controls, text="Medir", value="measure", variable=self.mode_var).pack(side=tk.LEFT)
+        ttk.Label(controls_bottom, text="DPI:").pack(side=tk.LEFT, padx=(10, 4))
+        ttk.Entry(controls_bottom, textvariable=self.dpi_var, width=6).pack(side=tk.LEFT)
 
-        ttk.Checkbutton(controls, text="Grilla", variable=self.show_grid_var, command=self._redraw).pack(side=tk.LEFT, padx=(12, 2))
-        ttk.Entry(controls, textvariable=self.grid_mm_var, width=5).pack(side=tk.LEFT)
-        ttk.Label(controls, text="mm").pack(side=tk.LEFT)
+        ttk.Label(controls_bottom, text="Modo:").pack(side=tk.LEFT, padx=(10, 4))
+        ttk.Radiobutton(controls_bottom, text="Marcar", value="mark", variable=self.mode_var).pack(side=tk.LEFT)
+        ttk.Radiobutton(controls_bottom, text="Medir", value="measure", variable=self.mode_var).pack(side=tk.LEFT)
+
+        ttk.Checkbutton(controls_bottom, text="Grilla", variable=self.show_grid_var, command=self._redraw).pack(side=tk.LEFT, padx=(10, 2))
+        ttk.Entry(controls_bottom, textvariable=self.grid_mm_var, width=4).pack(side=tk.LEFT)
+        ttk.Label(controls_bottom, text="mm").pack(side=tk.LEFT)
 
         main = ttk.PanedWindow(container, orient=tk.HORIZONTAL)
         main.pack(fill=tk.BOTH, expand=True)
 
         left = ttk.Frame(main)
         right = ttk.Frame(main)
-        main.add(left, weight=4)
+        main.add(left, weight=5)
         main.add(right, weight=2)
 
         self.canvas = tk.Canvas(left, bg="#ffffff", highlightthickness=0)
@@ -99,23 +103,23 @@ class FootScanGUI:
         self.canvas.bind("<Button-1>", self.on_click_add)
         self.canvas.bind("<Button-3>", self.on_click_remove)
         self.canvas.bind("<Configure>", lambda _e: self._redraw())
-        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)  # Windows/macOS
-        self.canvas.bind("<Button-4>", lambda _e: self._zoom_at(1.12))  # Linux
-        self.canvas.bind("<Button-5>", lambda _e: self._zoom_at(1 / 1.12))  # Linux
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.canvas.bind("<Button-4>", lambda _e: self._zoom_at(1.12))
+        self.canvas.bind("<Button-5>", lambda _e: self._zoom_at(1 / 1.12))
         self.canvas.bind("<ButtonPress-2>", self.on_pan_start)
         self.canvas.bind("<B2-Motion>", self.on_pan_drag)
         self.canvas.bind("<ButtonRelease-2>", self.on_pan_end)
 
         ttk.Label(right, text="Puntos / Medidas:").pack(anchor="w")
-        self.points_text = tk.Text(right, height=16, width=40)
+        self.points_text = tk.Text(right, height=11, width=28)
         self.points_text.pack(fill=tk.X, pady=(4, 8))
 
         ttk.Label(right, text="Comentarios / realces:").pack(anchor="w")
-        self.comments_text = tk.Text(right, height=14, width=40)
+        self.comments_text = tk.Text(right, height=10, width=28)
         self.comments_text.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
 
         self.status_var = tk.StringVar(value="Listo")
-        ttk.Label(right, textvariable=self.status_var, foreground="#444").pack(anchor="w")
+        ttk.Label(right, textvariable=self.status_var, foreground="#444", wraplength=250, justify=tk.LEFT).pack(anchor="w")
 
     def _set_status(self, msg: str) -> None:
         self.status_var.set(msg)

@@ -128,6 +128,8 @@ python footscan.py gui
 python footscan_gui.py
 ```
 
+La GUI está optimizada para pantallas 1024x768 (controles en doble fila y panel lateral compacto).
+
 La GUI permite:
 - importar imagen o intentar escaneo,
 - generar heatmap de fondo,
