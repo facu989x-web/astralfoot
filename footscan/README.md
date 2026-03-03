@@ -134,7 +134,7 @@ La GUI permite:
 - importar imagen o intentar escaneo,
 - generar heatmap de fondo,
 - marcar puntos manuales sobre una cuadrícula configurable en mm (modo **Marcar**),
-- trazar líneas de medida en modo **Medir** (distancia en px y mm),
+- trazar líneas de medida en modo **Medir** (distancia en px y mm) con etiqueta de medida (`largo_pie`, `ancho_antepie`, etc.),
 - mover la imagen con modo **Manito** (arrastrar con botón izquierdo) para trabajar con zoom,
 - importar/exportar medidas y comentarios en JSON,
 - aplicar **Auto-recortar pie** para limpiar ruido lateral y dejar fondo blanco,

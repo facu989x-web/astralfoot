@@ -41,6 +41,7 @@ class FootScanGUI:
         self.dpi_var = tk.StringVar(value="300")
         self.show_grid_var = tk.BooleanVar(value=True)
         self.grid_mm_var = tk.StringVar(value="10")
+        self.measure_name_var = tk.StringVar(value="largo_pie")
 
         self.fit_scale = 1.0
         self.zoom_factor = 1.0
@@ -86,6 +87,15 @@ class FootScanGUI:
         ttk.Radiobutton(controls_bottom, text="Marcar", value="mark", variable=self.mode_var).pack(side=tk.LEFT)
         ttk.Radiobutton(controls_bottom, text="Medir", value="measure", variable=self.mode_var).pack(side=tk.LEFT)
         ttk.Radiobutton(controls_bottom, text="Manito", value="hand", variable=self.mode_var).pack(side=tk.LEFT)
+
+        ttk.Label(controls_bottom, text="Etiqueta:").pack(side=tk.LEFT, padx=(10, 4))
+        ttk.Combobox(
+            controls_bottom,
+            textvariable=self.measure_name_var,
+            values=["largo_pie", "ancho_antepie", "ancho_talon", "mediopie", "realce_1", "realce_2"],
+            width=14,
+            state="readonly",
+        ).pack(side=tk.LEFT)
 
         ttk.Checkbutton(controls_bottom, text="Grilla", variable=self.show_grid_var, command=self._redraw).pack(side=tk.LEFT, padx=(10, 2))
         ttk.Entry(controls_bottom, textvariable=self.grid_mm_var, width=4).pack(side=tk.LEFT)
@@ -251,7 +261,7 @@ class FootScanGUI:
         if self.mode_var.get() == "measure":
             if self._pending_measure_start is None:
                 self._pending_measure_start = (ix, iy)
-                self._set_status("Medición: elegí punto final.")
+                self._set_status(f"Medición [{self.measure_name_var.get()}]: elegí punto final.")
             else:
                 x1, y1 = self._pending_measure_start
                 x2, y2 = ix, iy
@@ -262,6 +272,7 @@ class FootScanGUI:
                     {
                         "p1": {"x": x1, "y": y1},
                         "p2": {"x": x2, "y": y2},
+                        "name": self.measure_name_var.get(),
                         "distance_px": dist_px,
                         "distance_mm": dist_mm,
                     }
@@ -356,7 +367,8 @@ class FootScanGUI:
         for i, seg in enumerate(self.measure_segments, start=1):
             mm = seg.get("distance_mm")
             mm_txt = f" | {mm:.2f} mm" if isinstance(mm, (int, float)) and mm is not None else ""
-            self.points_text.insert(tk.END, f"M{i:02d}: {seg.get('distance_px', 0.0):.1f} px{mm_txt}\n")
+            name = str(seg.get("name", f"medida_{i}"))
+            self.points_text.insert(tk.END, f"M{i:02d} [{name}]: {seg.get('distance_px', 0.0):.1f} px{mm_txt}\n")
 
     def _redraw(self) -> None:
         self.canvas.delete("all")
@@ -396,7 +408,9 @@ class FootScanGUI:
             c1x, c1y = self.off_x + x1 * self.scale, self.off_y + y1 * self.scale
             c2x, c2y = self.off_x + x2 * self.scale, self.off_y + y2 * self.scale
             self.canvas.create_line(c1x, c1y, c2x, c2y, fill="#00ff00", width=3)
-            label = f"{seg['distance_px']:.1f}px"
+            name = str(seg.get("name", ""))
+            label = (name + ": ") if name else ""
+            label += f"{seg['distance_px']:.1f}px"
             if seg.get("distance_mm") is not None:
                 label += f" | {seg['distance_mm']:.2f}mm"
             mx, my = (c1x + c2x) / 2.0, (c1y + c2y) / 2.0
@@ -428,6 +442,9 @@ class FootScanGUI:
             pts = data.get("points_image_xy") or []
             self.points_image = [(float(p["x"]), float(p["y"])) for p in pts if "x" in p and "y" in p]
             self.measure_segments = data.get("measurements") or []
+            for i, seg in enumerate(self.measure_segments, start=1):
+                if "name" not in seg:
+                    seg["name"] = f"medida_{i}"
             self.comments_text.delete("1.0", tk.END)
             self.comments_text.insert(tk.END, data.get("comments", ""))
             self._refresh_points_box()
