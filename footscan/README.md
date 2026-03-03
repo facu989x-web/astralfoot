@@ -135,6 +135,7 @@ La GUI permite:
 - generar heatmap de fondo,
 - marcar puntos manuales sobre una cuadrícula configurable en mm (modo **Marcar**),
 - trazar líneas de medida en modo **Medir** (distancia en px y mm),
+- mover la imagen con modo **Manito** (arrastrar con botón izquierdo) para trabajar con zoom,
 - importar/exportar medidas y comentarios en JSON,
 - aplicar **Auto-recortar pie** para limpiar ruido lateral y dejar fondo blanco,
 - usar zoom (+/-/ruedita) y paneo (botón central) para detalle fino,

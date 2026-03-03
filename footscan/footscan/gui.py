@@ -85,6 +85,7 @@ class FootScanGUI:
         ttk.Label(controls_bottom, text="Modo:").pack(side=tk.LEFT, padx=(10, 4))
         ttk.Radiobutton(controls_bottom, text="Marcar", value="mark", variable=self.mode_var).pack(side=tk.LEFT)
         ttk.Radiobutton(controls_bottom, text="Medir", value="measure", variable=self.mode_var).pack(side=tk.LEFT)
+        ttk.Radiobutton(controls_bottom, text="Manito", value="hand", variable=self.mode_var).pack(side=tk.LEFT)
 
         ttk.Checkbutton(controls_bottom, text="Grilla", variable=self.show_grid_var, command=self._redraw).pack(side=tk.LEFT, padx=(10, 2))
         ttk.Entry(controls_bottom, textvariable=self.grid_mm_var, width=4).pack(side=tk.LEFT)
@@ -101,6 +102,8 @@ class FootScanGUI:
         self.canvas = tk.Canvas(left, bg="#ffffff", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Button-1>", self.on_click_add)
+        self.canvas.bind("<B1-Motion>", self.on_left_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_left_release)
         self.canvas.bind("<Button-3>", self.on_click_remove)
         self.canvas.bind("<Configure>", lambda _e: self._redraw())
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
@@ -235,6 +238,12 @@ class FootScanGUI:
     def on_click_add(self, event: tk.Event) -> None:
         if self.display_bgr is None:
             return
+
+        if self.mode_var.get() == "hand":
+            self._pan_start = (float(event.x), float(event.y))
+            self._set_status("Manito activa: arrastrá para mover la imagen.")
+            return
+
         ix, iy = self._canvas_to_image(float(event.x), float(event.y))
         if ix is None:
             return
@@ -281,6 +290,19 @@ class FootScanGUI:
             self.points_image.pop()
             self._refresh_points_box()
             self._redraw()
+
+    def on_left_drag(self, event: tk.Event) -> None:
+        if self.mode_var.get() != "hand" or self._pan_start is None:
+            return
+        sx, sy = self._pan_start
+        self.pan_x += float(event.x) - sx
+        self.pan_y += float(event.y) - sy
+        self._pan_start = (float(event.x), float(event.y))
+        self._redraw()
+
+    def on_left_release(self, _event: tk.Event) -> None:
+        if self.mode_var.get() == "hand":
+            self._pan_start = None
 
     def on_zoom_in(self) -> None:
         self._zoom_at(1.15)
