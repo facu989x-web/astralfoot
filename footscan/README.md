@@ -131,9 +131,11 @@ python footscan_gui.py
 La GUI permite:
 - importar imagen o intentar escaneo,
 - generar heatmap de fondo,
-- marcar puntos manuales sobre una cuadrícula (modo **Marcar**),
+- marcar puntos manuales sobre una cuadrícula configurable en mm (modo **Marcar**),
 - trazar líneas de medida en modo **Medir** (distancia en px y mm),
 - importar/exportar medidas y comentarios en JSON,
+- aplicar **Auto-recortar pie** para limpiar ruido lateral y dejar fondo blanco,
+- usar zoom (+/-/ruedita) y paneo (botón central) para detalle fino,
 - exportar un JSON de anotaciones para fabricación/seguimiento,
 - si hay 3+ puntos de contorno, exportar también recorte poligonal del heatmap (`*_heatmap_crop.png` + máscara).
 

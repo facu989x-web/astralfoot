@@ -23,12 +23,13 @@ class FootScanGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("FootScan GUI (MVP)")
-        self.root.geometry("1200x780")
+        self.root.geometry("1260x820")
 
         self.current_path: Optional[Path] = None
         self.image_bgr: Optional[np.ndarray] = None
         self.display_bgr: Optional[np.ndarray] = None
         self.tk_image: Optional[ImageTk.PhotoImage] = None
+
         self.points_image: List[Tuple[float, float]] = []
         self.measure_segments: List[Dict[str, Any]] = []
         self._pending_measure_start: Optional[Tuple[float, float]] = None
@@ -37,10 +38,17 @@ class FootScanGUI:
         self.mode_var = tk.StringVar(value="mark")
         self.foot_var = tk.StringVar(value="right")
         self.dpi_var = tk.StringVar(value="300")
+        self.show_grid_var = tk.BooleanVar(value=True)
+        self.grid_mm_var = tk.StringVar(value="10")
 
+        self.fit_scale = 1.0
+        self.zoom_factor = 1.0
         self.scale = 1.0
-        self.off_x = 0
-        self.off_y = 0
+        self.off_x = 0.0
+        self.off_y = 0.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self._pan_start: Optional[Tuple[float, float]] = None
 
         self._build_ui()
 
@@ -54,11 +62,17 @@ class FootScanGUI:
         ttk.Button(controls, text="Importar imagen", command=self.on_import).pack(side=tk.LEFT, padx=4)
         ttk.Button(controls, text="Escanear (stub)", command=self.on_scan).pack(side=tk.LEFT, padx=4)
         ttk.Button(controls, text="Generar heatmap", command=self.on_analyze).pack(side=tk.LEFT, padx=4)
+        ttk.Button(controls, text="Auto-recortar pie", command=self.on_auto_crop_noise).pack(side=tk.LEFT, padx=4)
         ttk.Button(controls, text="Importar medidas", command=self.on_import_measures).pack(side=tk.LEFT, padx=4)
         ttk.Button(controls, text="Limpiar", command=self.on_clear_points).pack(side=tk.LEFT, padx=4)
         ttk.Button(controls, text="Exportar", command=self.on_export).pack(side=tk.LEFT, padx=4)
 
-        ttk.Label(controls, text="Pie:").pack(side=tk.LEFT, padx=(16, 4))
+        ttk.Separator(controls, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+        ttk.Button(controls, text="-", width=3, command=self.on_zoom_out).pack(side=tk.LEFT)
+        ttk.Button(controls, text="+", width=3, command=self.on_zoom_in).pack(side=tk.LEFT)
+        ttk.Button(controls, text="Ajustar", command=self.on_zoom_fit).pack(side=tk.LEFT, padx=(4, 10))
+
+        ttk.Label(controls, text="Pie:").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Combobox(controls, textvariable=self.foot_var, values=["left", "right", "auto"], width=8, state="readonly").pack(side=tk.LEFT)
 
         ttk.Label(controls, text="DPI:").pack(side=tk.LEFT, padx=(12, 4))
@@ -68,6 +82,10 @@ class FootScanGUI:
         ttk.Radiobutton(controls, text="Marcar", value="mark", variable=self.mode_var).pack(side=tk.LEFT)
         ttk.Radiobutton(controls, text="Medir", value="measure", variable=self.mode_var).pack(side=tk.LEFT)
 
+        ttk.Checkbutton(controls, text="Grilla", variable=self.show_grid_var, command=self._redraw).pack(side=tk.LEFT, padx=(12, 2))
+        ttk.Entry(controls, textvariable=self.grid_mm_var, width=5).pack(side=tk.LEFT)
+        ttk.Label(controls, text="mm").pack(side=tk.LEFT)
+
         main = ttk.PanedWindow(container, orient=tk.HORIZONTAL)
         main.pack(fill=tk.BOTH, expand=True)
 
@@ -76,18 +94,24 @@ class FootScanGUI:
         main.add(left, weight=4)
         main.add(right, weight=2)
 
-        self.canvas = tk.Canvas(left, bg="#111111", highlightthickness=0)
+        self.canvas = tk.Canvas(left, bg="#ffffff", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Button-1>", self.on_click_add)
         self.canvas.bind("<Button-3>", self.on_click_remove)
         self.canvas.bind("<Configure>", lambda _e: self._redraw())
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)  # Windows/macOS
+        self.canvas.bind("<Button-4>", lambda _e: self._zoom_at(1.12))  # Linux
+        self.canvas.bind("<Button-5>", lambda _e: self._zoom_at(1 / 1.12))  # Linux
+        self.canvas.bind("<ButtonPress-2>", self.on_pan_start)
+        self.canvas.bind("<B2-Motion>", self.on_pan_drag)
+        self.canvas.bind("<ButtonRelease-2>", self.on_pan_end)
 
         ttk.Label(right, text="Puntos / Medidas:").pack(anchor="w")
-        self.points_text = tk.Text(right, height=16, width=38)
+        self.points_text = tk.Text(right, height=16, width=40)
         self.points_text.pack(fill=tk.X, pady=(4, 8))
 
         ttk.Label(right, text="Comentarios / realces:").pack(anchor="w")
-        self.comments_text = tk.Text(right, height=14, width=38)
+        self.comments_text = tk.Text(right, height=14, width=40)
         self.comments_text.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
 
         self.status_var = tk.StringVar(value="Listo")
@@ -95,6 +119,11 @@ class FootScanGUI:
 
     def _set_status(self, msg: str) -> None:
         self.status_var.set(msg)
+
+    def _reset_view(self) -> None:
+        self.zoom_factor = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
 
     def on_import(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.tif;*.tiff")])
@@ -109,6 +138,7 @@ class FootScanGUI:
             self.measure_segments.clear()
             self._pending_measure_start = None
             self.metrics = None
+            self._reset_view()
             self._set_status(f"Imagen cargada: {self.current_path.name}")
             self._refresh_points_box()
             self._redraw()
@@ -128,6 +158,7 @@ class FootScanGUI:
             self.measure_segments.clear()
             self._pending_measure_start = None
             self.metrics = None
+            self._reset_view()
             self._set_status(f"Escaneo cargado: {raw_path.name}")
             self._refresh_points_box()
             self._redraw()
@@ -145,7 +176,7 @@ class FootScanGUI:
             metrics, contact_rel, _ = compute_metrics(seg.mask, prep["corrected"], prep["gray"], foot_hint=self.foot_var.get(), dpi=dpi)
             heat_u8 = (contact_rel * 255.0).clip(0, 255).astype("uint8")
             heat_bgr = cv2.applyColorMap(heat_u8, cv2.COLORMAP_TURBO)
-            heat_bgr[seg.mask == 0] = (0, 0, 0)
+            heat_bgr[seg.mask == 0] = (255, 255, 255)
             self.display_bgr = heat_bgr
             self.metrics = {
                 "length_mm": metrics.length_mm,
@@ -159,6 +190,36 @@ class FootScanGUI:
             self._redraw()
         except Exception as exc:
             messagebox.showerror("Analyze", f"Error al generar heatmap: {exc}")
+
+    def on_auto_crop_noise(self) -> None:
+        if self.image_bgr is None:
+            messagebox.showinfo("Info", "Primero cargá una imagen.")
+            return
+        try:
+            prep = preprocess_image(self.image_bgr)
+            seg = segment_footprint(prep["denoised"])
+            x, y, w, h = seg.bbox
+            margin = max(20, int(max(w, h) * 0.06))
+            h_img, w_img = self.image_bgr.shape[:2]
+            x0, y0 = max(0, x - margin), max(0, y - margin)
+            x1, y1 = min(w_img, x + w + margin), min(h_img, y + h + margin)
+
+            roi = self.image_bgr[y0:y1, x0:x1].copy()
+            roi_mask = seg.mask[y0:y1, x0:x1]
+            white_bg = np.full_like(roi, 255)
+            white_bg[roi_mask > 0] = roi[roi_mask > 0]
+
+            self.image_bgr = white_bg.copy()
+            self.display_bgr = white_bg
+            self.points_image.clear()
+            self.measure_segments.clear()
+            self._pending_measure_start = None
+            self._reset_view()
+            self._set_status("Auto-recorte aplicado: ruido lateral reducido y fondo blanco.")
+            self._refresh_points_box()
+            self._redraw()
+        except Exception as exc:
+            messagebox.showerror("Auto-recorte", f"No se pudo recortar automáticamente: {exc}")
 
     def on_clear_points(self) -> None:
         self.points_image.clear()
@@ -217,6 +278,39 @@ class FootScanGUI:
             self._refresh_points_box()
             self._redraw()
 
+    def on_zoom_in(self) -> None:
+        self._zoom_at(1.15)
+
+    def on_zoom_out(self) -> None:
+        self._zoom_at(1.0 / 1.15)
+
+    def on_zoom_fit(self) -> None:
+        self._reset_view()
+        self._redraw()
+
+    def on_mouse_wheel(self, event: tk.Event) -> None:
+        factor = 1.12 if event.delta > 0 else (1.0 / 1.12)
+        self._zoom_at(factor)
+
+    def _zoom_at(self, factor: float) -> None:
+        self.zoom_factor = float(np.clip(self.zoom_factor * factor, 0.2, 12.0))
+        self._redraw()
+
+    def on_pan_start(self, event: tk.Event) -> None:
+        self._pan_start = (float(event.x), float(event.y))
+
+    def on_pan_drag(self, event: tk.Event) -> None:
+        if self._pan_start is None:
+            return
+        sx, sy = self._pan_start
+        self.pan_x += float(event.x) - sx
+        self.pan_y += float(event.y) - sy
+        self._pan_start = (float(event.x), float(event.y))
+        self._redraw()
+
+    def on_pan_end(self, _event: tk.Event) -> None:
+        self._pan_start = None
+
     def _canvas_to_image(self, x: float, y: float) -> Tuple[Optional[float], Optional[float]]:
         if self.display_bgr is None:
             return None, None
@@ -246,42 +340,49 @@ class FootScanGUI:
         h, w = self.display_bgr.shape[:2]
         cw = max(1, self.canvas.winfo_width())
         ch = max(1, self.canvas.winfo_height())
-        self.scale = min(cw / w, ch / h)
+        self.fit_scale = min(cw / w, ch / h)
+        self.scale = self.fit_scale * self.zoom_factor
         nw, nh = max(1, int(w * self.scale)), max(1, int(h * self.scale))
-        self.off_x = (cw - nw) // 2
-        self.off_y = (ch - nh) // 2
+        self.off_x = (cw - nw) / 2.0 + self.pan_x
+        self.off_y = (ch - nh) / 2.0 + self.pan_y
 
         rgb = cv2.cvtColor(self.display_bgr, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(rgb, (nw, nh), interpolation=cv2.INTER_AREA)
         self.tk_image = ImageTk.PhotoImage(Image.fromarray(resized))
         self.canvas.create_image(self.off_x, self.off_y, image=self.tk_image, anchor=tk.NW)
 
-        grid_step = max(20, int(40 * self.scale))
-        for x in range(self.off_x, self.off_x + nw, grid_step):
-            self.canvas.create_line(x, self.off_y, x, self.off_y + nh, fill="#333333")
-        for y in range(self.off_y, self.off_y + nh, grid_step):
-            self.canvas.create_line(self.off_x, y, self.off_x + nw, y, fill="#333333")
+        if self.show_grid_var.get():
+            dpi = float(self.dpi_var.get()) if self.dpi_var.get().strip() else 0.0
+            grid_mm = float(self.grid_mm_var.get()) if self.grid_mm_var.get().strip() else 10.0
+            if dpi > 0 and grid_mm > 0:
+                step_px = max(1.0, grid_mm * dpi / 25.4)
+                step = max(8, int(step_px * self.scale))
+            else:
+                step = max(20, int(40 * self.scale))
+            for x in range(int(self.off_x), int(self.off_x + nw), step):
+                self.canvas.create_line(x, self.off_y, x, self.off_y + nh, fill="#cccccc")
+            for y in range(int(self.off_y), int(self.off_y + nh), step):
+                self.canvas.create_line(self.off_x, y, self.off_x + nw, y, fill="#cccccc")
 
-        # Draw measurement lines and labels first
         for seg in self.measure_segments:
             x1, y1 = seg["p1"]["x"], seg["p1"]["y"]
             x2, y2 = seg["p2"]["x"], seg["p2"]["y"]
             c1x, c1y = self.off_x + x1 * self.scale, self.off_y + y1 * self.scale
             c2x, c2y = self.off_x + x2 * self.scale, self.off_y + y2 * self.scale
-            self.canvas.create_line(c1x, c1y, c2x, c2y, fill="#00ff66", width=2)
+            self.canvas.create_line(c1x, c1y, c2x, c2y, fill="#00ff00", width=3)
             label = f"{seg['distance_px']:.1f}px"
             if seg.get("distance_mm") is not None:
                 label += f" | {seg['distance_mm']:.2f}mm"
             mx, my = (c1x + c2x) / 2.0, (c1y + c2y) / 2.0
-            self.canvas.create_text(mx + 6, my - 6, text=label, fill="#00ff66", anchor=tk.SW)
+            self.canvas.create_rectangle(mx - 2, my - 16, mx + 180, my + 2, fill="#000000", outline="")
+            self.canvas.create_text(mx + 4, my - 4, text=label, fill="#00ff00", anchor=tk.SW)
 
-        # Draw marking polygon
         for i, (px, py) in enumerate(self.points_image, start=1):
             cx = self.off_x + px * self.scale
             cy = self.off_y + py * self.scale
             r = 4
             self.canvas.create_rectangle(cx - r, cy - r, cx + r, cy + r, fill="#ff3030", outline="#ffffff")
-            self.canvas.create_text(cx + 9, cy - 9, text=str(i), fill="#ffffff", anchor=tk.NW)
+            self.canvas.create_text(cx + 9, cy - 9, text=str(i), fill="#ff3030", anchor=tk.NW)
 
         if len(self.points_image) >= 2:
             prev = None
@@ -289,7 +390,7 @@ class FootScanGUI:
                 cx = self.off_x + px * self.scale
                 cy = self.off_y + py * self.scale
                 if prev is not None:
-                    self.canvas.create_line(prev[0], prev[1], cx, cy, fill="#00e5ff", width=2)
+                    self.canvas.create_line(prev[0], prev[1], cx, cy, fill="#FFD400", width=3)
                 prev = (cx, cy)
 
     def on_import_measures(self) -> None:
