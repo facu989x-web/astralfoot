@@ -299,6 +299,85 @@ def _derive_findings(mask: np.ndarray, contact_rel: np.ndarray, metrics) -> Dict
     }
 
 
+def _estimate_relief_heights(
+    mask: np.ndarray,
+    contact_rel: np.ndarray,
+    metrics,
+    target_contact_rel: float,
+    max_relief_mm: float,
+) -> Dict[str, Any]:
+    """Estimate suggested relief heights (mm) from relative contact map.
+
+    This is a fabrication-oriented heuristic: zones with lower relative contact
+    receive higher suggested relief, capped by ``max_relief_mm``.
+    """
+    ys, xs = np.where(mask > 0)
+    if ys.size == 0:
+        return {
+            "model": "contact_rel_linear",
+            "target_contact_rel": target_contact_rel,
+            "max_relief_mm": max_relief_mm,
+            "summary": {"mean_mm": 0.0, "p90_mm": 0.0, "max_mm": 0.0},
+            "zones": {},
+        }
+
+    target = float(np.clip(target_contact_rel, 0.05, 1.0))
+    max_mm = float(max(0.5, max_relief_mm))
+
+    rel = contact_rel.astype(np.float32)
+    relief_map = np.zeros_like(rel, dtype=np.float32)
+    relief_map[mask > 0] = max_mm * np.clip((target - rel[mask > 0]) / max(target, 1e-6), 0.0, 1.0)
+
+    heel_pt, toe_pt = metrics.length_endpoints_yx
+    heel_xy = np.array([float(heel_pt[1]), float(heel_pt[0])], dtype=np.float32)
+    toe_xy = np.array([float(toe_pt[1]), float(toe_pt[0])], dtype=np.float32)
+    axis = toe_xy - heel_xy
+    axis_norm2 = float(np.dot(axis, axis))
+    if axis_norm2 <= 1e-6:
+        t = (ys.astype(np.float32) - ys.min()) / max(float(ys.max() - ys.min()), 1.0)
+    else:
+        pts = np.column_stack([xs.astype(np.float32), ys.astype(np.float32)])
+        t = np.dot(pts - heel_xy[None, :], axis) / axis_norm2
+    t = np.clip(t, 0.0, 1.0)
+
+    zone_defs = [
+        ("heel", 0.00, 0.33),
+        ("midfoot", 0.33, 0.67),
+        ("forefoot", 0.67, 0.90),
+        ("toes", 0.90, 1.01),
+    ]
+    zones: Dict[str, Dict[str, float]] = {}
+    relief_vals = relief_map[ys, xs]
+    for name, lo, hi in zone_defs:
+        z = (t >= lo) & (t < hi)
+        if not np.any(z):
+            zones[name] = {"mean_mm": 0.0, "p90_mm": 0.0, "max_mm": 0.0, "pixel_share": 0.0}
+            continue
+        zv = relief_vals[z]
+        zones[name] = {
+            "mean_mm": float(np.mean(zv)),
+            "p90_mm": float(np.percentile(zv, 90)),
+            "max_mm": float(np.max(zv)),
+            "pixel_share": float(np.mean(z)),
+        }
+
+    return {
+        "model": "contact_rel_linear",
+        "target_contact_rel": target,
+        "max_relief_mm": max_mm,
+        "summary": {
+            "mean_mm": float(np.mean(relief_vals)),
+            "p90_mm": float(np.percentile(relief_vals, 90)),
+            "max_mm": float(np.max(relief_vals)),
+        },
+        "zones": zones,
+        "notes": [
+            "Estimación heurística para realces basada en contacto relativo.",
+            "No reemplaza medición clínica de presión/altura 3D.",
+        ],
+    }
+
+
 def _analyze_one(
     input_path: Path,
     output_dir: Path,
@@ -307,6 +386,8 @@ def _analyze_one(
     debug: bool,
     profile_path: Optional[Path] = None,
     progress_fn: Optional[Callable[[str], None]] = None,
+    relief_target_contact: float = 0.82,
+    relief_max_mm: float = 6.0,
 ) -> Dict[str, Path]:
     import cv2
     from footscan.metrics import compute_metrics
@@ -381,6 +462,13 @@ def _analyze_one(
     findings = _derive_findings(seg.mask, contact_rel, metrics)
     subzones, subzone_map = _build_subzone_enhancement(seg.mask, contact_rel, metrics)
     findings["subzones"] = subzones
+    findings["relief"] = _estimate_relief_heights(
+        seg.mask,
+        contact_rel,
+        metrics,
+        target_contact_rel=relief_target_contact,
+        max_relief_mm=relief_max_mm,
+    )
 
     stem = input_path.stem
     overlay_path = output_dir / f"{stem}_overlay.png"
@@ -432,6 +520,10 @@ def _analyze_one(
     results["metadata"]["roi_crop"] = crop_meta
     if calibration_meta is not None:
         results["metadata"]["calibration"] = calibration_meta
+    results["metadata"]["relief_model"] = {
+        "target_contact_rel": float(relief_target_contact),
+        "max_relief_mm": float(relief_max_mm),
+    }
     results["metadata"]["adaptive_cleanup"] = {
         "garbage_ratio": metrics_debug.get("garbage_ratio", 0.0),
         "trim_ratio": metrics_debug.get("trim_ratio", 0.0),
@@ -496,6 +588,8 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_p.add_argument("--foot", type=str, default="auto", choices=["left", "right", "auto"])
     analyze_p.add_argument("--profile", type=str, default=None, help="Perfil de calibración JSON (mm_per_px).")
     analyze_p.add_argument("--debug", action="store_true")
+    analyze_p.add_argument("--relief-target-contact", type=float, default=0.82, help="Contacto relativo objetivo para estimar altura de realce (0-1).")
+    analyze_p.add_argument("--relief-max-mm", type=float, default=6.0, help="Altura máxima de realce sugerida en mm.")
 
     batch_p = sub.add_parser("batch", help="Procesa todas las imágenes de un folder.")
     batch_p.add_argument("--input", type=str, required=True, help="Carpeta de imágenes.")
@@ -504,6 +598,8 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--foot", type=str, default="auto", choices=["left", "right", "auto"])
     batch_p.add_argument("--profile", type=str, default=None, help="Perfil de calibración JSON (mm_per_px).")
     batch_p.add_argument("--debug", action="store_true")
+    batch_p.add_argument("--relief-target-contact", type=float, default=0.82, help="Contacto relativo objetivo para estimar altura de realce (0-1).")
+    batch_p.add_argument("--relief-max-mm", type=float, default=6.0, help="Altura máxima de realce sugerida en mm.")
 
     cal_p = sub.add_parser("calibrate", help="Crea perfil de calibración mm/px usando largo real del pie.")
     cal_p.add_argument("--input", type=str, required=True)
@@ -646,6 +742,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             args.debug,
             Path(args.profile) if args.profile else None,
             _progress,
+            args.relief_target_contact,
+            args.relief_max_mm,
         )
         print("Análisis completado:")
         for k, v in outputs.items():
@@ -694,6 +792,8 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 args.debug,
                 Path(args.profile) if args.profile else None,
                 _progress,
+                args.relief_target_contact,
+                args.relief_max_mm,
             )
 
             result_json = outputs.get("json")
