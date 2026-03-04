@@ -8,7 +8,7 @@ MVP en Python para análisis de **huella plantar por contacto** a partir de imag
 
 - CLI con comandos de consola y GUI:
   - `scan`: intenta adquirir imagen del escáner (WIA/TWAIN) y guarda raw.
-  - `analyze`: procesa una imagen y genera `overlay.png`, `mask.png`, `heatmap.png`, `results.json`, `report.pdf` y sugerencia de realces (`findings.relief`).
+  - `analyze`: procesa una imagen y genera `overlay.png`, `mask.png`, `heatmap.png`, `relief.png`, `results.json`, `report.pdf` y sugerencia de realces (`findings.relief`).
   - `batch`: procesa una carpeta completa.
   - `calibrate`: crea perfil de calibración `mm_per_px` usando largo real conocido.
   - `gui`: interfaz gráfica para importar/escanear, ver heatmap en grilla y marcar puntos/manual notes.
@@ -163,6 +163,7 @@ Para una entrada `dummy_foot.png` se generan:
 - `outputs/dummy_foot_overlay.png`
 - `outputs/dummy_foot_mask.png`
 - `outputs/dummy_foot_heatmap.png`
+- `outputs/dummy_foot_relief.png` (mapa visual de altura sugerida de realce)
 - `outputs/dummy_foot_results.json` (incluye `findings` con contactos zonales, acción sugerida, severidad, `review_score`, `observations`, `subzones` y `relief` con altura sugerida por zona en mm)
 - `outputs/dummy_foot_report.pdf`
 - además, con `--debug`, imágenes intermedias del pipeline, incluyendo `debug_full_with_roi_box`, `debug_roi_mask_overlay`, `debug_clean_model_mask`, `debug_clean_model_overlay` y `debug_enhanced_map` para comparar máscara base vs modelo limpio y realces por subzonas.
@@ -186,4 +187,5 @@ Para una entrada `dummy_foot.png` se generan:
 - La máscara de huella se rellena sobre el contorno principal para evitar "huellas huecas" (contorno con interior negro) que distorsionan el heatmap y el cálculo de área.
 - Se aplica recorte automático al bounding box del pie (con margen) para reducir ruido por fondo, ropa o zonas escaneadas sin contacto.
 - `findings.relief` estima altura de realce en mm (modelo lineal sobre `contact_rel`): menor contacto relativo => mayor altura sugerida, con tope configurable (`--relief-max-mm`).
+- `metadata.relief_model.artifact_file` guarda la ruta del `*_relief.png` generado para revisión visual rápida.
 - `results.json` incluye `metadata.adaptive_cleanup` con indicadores de detección de basura (`garbage_ratio`), agresividad de recorte (`trim_aggressiveness`), recuperación anti sobre-recorte (`trim_recovery_applied`/`trim_recovery_level`) y pisos de plausibilidad usados en mediopié (`mid_plausible_floor_px`).

@@ -365,6 +365,7 @@ def _estimate_relief_heights(
         "model": "contact_rel_linear",
         "target_contact_rel": target,
         "max_relief_mm": max_mm,
+        "relief_map_mm": relief_map,
         "summary": {
             "mean_mm": float(np.mean(relief_vals)),
             "p90_mm": float(np.percentile(relief_vals, 90)),
@@ -469,17 +470,27 @@ def _analyze_one(
         target_contact_rel=relief_target_contact,
         max_relief_mm=relief_max_mm,
     )
+    relief_map_mm = findings["relief"].pop("relief_map_mm", None)
+    relief_max_for_map = max(1e-6, float(findings["relief"].get("max_relief_mm", relief_max_mm)))
+    if isinstance(relief_map_mm, np.ndarray):
+        relief_u8 = (255.0 * np.clip(relief_map_mm / relief_max_for_map, 0.0, 1.0)).astype("uint8")
+        relief_img = cv2.applyColorMap(relief_u8, cv2.COLORMAP_TURBO)
+        relief_img[seg.mask == 0] = (0, 0, 0)
+    else:
+        relief_img = np.zeros_like(image_roi)
 
     stem = input_path.stem
     overlay_path = output_dir / f"{stem}_overlay.png"
     mask_path = output_dir / f"{stem}_mask.png"
     heatmap_path = output_dir / f"{stem}_heatmap.png"
+    relief_path = output_dir / f"{stem}_relief.png"
     json_path = output_dir / f"{stem}_results.json"
     pdf_path = output_dir / f"{stem}_report.pdf"
 
     save_image(overlay_path, overlay)
     save_image(mask_path, seg.mask)
     save_image(heatmap_path, heatmap)
+    save_image(relief_path, relief_img)
 
     _progress("6/8 Exportando JSON/PDF")
 
@@ -521,6 +532,7 @@ def _analyze_one(
     if calibration_meta is not None:
         results["metadata"]["calibration"] = calibration_meta
     results["metadata"]["relief_model"] = {
+        "artifact_file": str(relief_path),
         "target_contact_rel": float(relief_target_contact),
         "max_relief_mm": float(relief_max_mm),
     }
@@ -567,6 +579,7 @@ def _analyze_one(
         "overlay": overlay_path,
         "mask": mask_path,
         "heatmap": heatmap_path,
+        "relief": relief_path,
         "json": json_path,
         "pdf": pdf_path,
     }

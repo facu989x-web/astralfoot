@@ -63,6 +63,23 @@ def _metric_rows(results: Dict) -> List[Tuple[str, str]]:
     observations = findings.get("observations") or []
     if observations:
         rows.append(("Observaciones", " | ".join(str(o) for o in observations)))
+    relief = findings.get("relief") or {}
+    if relief:
+        summary = relief.get("summary") or {}
+        rows.append((
+            "Realce sugerido (resumen)",
+            f"media {float(summary.get('mean_mm', 0.0)):.2f} mm | p90 {float(summary.get('p90_mm', 0.0)):.2f} mm | máx {float(summary.get('max_mm', 0.0)):.2f} mm",
+        ))
+        rz = relief.get("zones") or {}
+        for key, label in [
+            ("heel", "Realce talón"),
+            ("midfoot", "Realce mediopié"),
+            ("forefoot", "Realce antepié"),
+            ("toes", "Realce dedos"),
+        ]:
+            z = rz.get(key)
+            if z:
+                rows.append((label, f"media {float(z.get('mean_mm', 0.0)):.2f} mm | p90 {float(z.get('p90_mm', 0.0)):.2f} mm | máx {float(z.get('max_mm', 0.0)):.2f} mm"))
     if findings.get("subzones"):
         rows.append(("Subzonas", "Detalle de subzonas medial/lateral disponible en results.json"))
     return rows
