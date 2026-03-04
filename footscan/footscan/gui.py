@@ -136,6 +136,7 @@ class FootScanGUI:
 
     def _set_status(self, msg: str) -> None:
         self.status_var.set(msg)
+        self.root.update_idletasks()
 
     def _reset_view(self) -> None:
         self.zoom_factor = 1.0
@@ -187,10 +188,17 @@ class FootScanGUI:
             messagebox.showinfo("Info", "Primero cargá una imagen.")
             return
         try:
+            self._set_status("Generando heatmap: 1/4 preprocesando imagen...")
             prep = preprocess_image(self.image_bgr)
+
+            self._set_status("Generando heatmap: 2/4 segmentando huella...")
             seg = segment_footprint(prep["denoised"])
+
+            self._set_status("Generando heatmap: 3/4 calculando métricas y contacto relativo...")
             dpi = float(self.dpi_var.get()) if self.dpi_var.get().strip() else None
             metrics, contact_rel, _ = compute_metrics(seg.mask, prep["corrected"], prep["gray"], foot_hint=self.foot_var.get(), dpi=dpi)
+
+            self._set_status("Generando heatmap: 4/4 renderizando vista...")
             heat_u8 = (contact_rel * 255.0).clip(0, 255).astype("uint8")
             heat_bgr = cv2.applyColorMap(heat_u8, cv2.COLORMAP_TURBO)
             heat_bgr[seg.mask == 0] = (255, 255, 255)
@@ -203,9 +211,11 @@ class FootScanGUI:
                 "arch_index": metrics.arch_index_chippaux_smirak,
                 "length_px": metrics.length_px,
             }
-            self._set_status("Heatmap generado. Modo Marcar o Medir.")
+            length_txt = f"{metrics.length_mm:.1f} mm" if metrics.length_mm is not None else f"{metrics.length_px:.0f} px"
+            self._set_status(f"Heatmap listo. Largo aprox: {length_txt}. Ya podés marcar o medir.")
             self._redraw()
         except Exception as exc:
+            self._set_status("Error durante cálculo de heatmap.")
             messagebox.showerror("Analyze", f"Error al generar heatmap: {exc}")
 
     def on_auto_crop_noise(self) -> None:
