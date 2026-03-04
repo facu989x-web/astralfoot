@@ -201,22 +201,46 @@ class FootScanGUI:
         except Exception as exc:
             messagebox.showerror("Scan", f"No se pudo escanear. Usá Importar imagen.\n\nDetalle: {exc}")
 
+    def _prepare_noise_cropped(self, image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Crop to footprint bbox and whiten background so side noise does not bias analysis."""
+        prep0 = preprocess_image(image_bgr)
+        seg0 = segment_footprint(prep0["denoised"])
+        x, y, w, h = seg0.bbox
+        margin = max(20, int(max(w, h) * 0.06))
+        h_img, w_img = image_bgr.shape[:2]
+        x0, y0 = max(0, x - margin), max(0, y - margin)
+        x1, y1 = min(w_img, x + w + margin), min(h_img, y + h + margin)
+
+        roi = image_bgr[y0:y1, x0:x1].copy()
+        prep_roi = preprocess_image(roi)
+        seg_roi = segment_footprint(prep_roi["denoised"])
+        roi_mask = seg_roi.mask
+
+        white_bg = np.full_like(roi, 255)
+        white_bg[roi_mask > 0] = roi[roi_mask > 0]
+        return white_bg, roi_mask
+
     def on_analyze(self) -> None:
         if self.image_bgr is None:
             messagebox.showinfo("Info", "Primero cargá una imagen.")
             return
         try:
-            self._set_status("Generando heatmap: 1/4 preprocesando imagen...")
+            self._set_status("Generando heatmap: 1/5 recortando pie y limpiando ruido lateral...")
+            cropped, _ = self._prepare_noise_cropped(self.image_bgr)
+            # Keep working image synchronized: relief must always use the cropped footprint.
+            self.image_bgr = cropped
+
+            self._set_status("Generando heatmap: 2/5 preprocesando imagen recortada...")
             prep = preprocess_image(self.image_bgr)
 
-            self._set_status("Generando heatmap: 2/4 segmentando huella...")
+            self._set_status("Generando heatmap: 3/5 segmentando huella recortada...")
             seg = segment_footprint(prep["denoised"])
 
-            self._set_status("Generando heatmap: 3/4 calculando métricas y contacto relativo...")
+            self._set_status("Generando heatmap: 4/5 calculando métricas y contacto relativo...")
             dpi = float(self.dpi_var.get()) if self.dpi_var.get().strip() else None
             metrics, contact_rel, _ = compute_metrics(seg.mask, prep["corrected"], prep["gray"], foot_hint=self.foot_var.get(), dpi=dpi)
 
-            self._set_status("Generando heatmap: 4/4 renderizando vista...")
+            self._set_status("Generando heatmap: 5/5 renderizando vista...")
             heat_u8 = (contact_rel * 255.0).clip(0, 255).astype("uint8")
             heat_bgr = cv2.applyColorMap(heat_u8, cv2.COLORMAP_TURBO)
             heat_bgr[seg.mask == 0] = (255, 255, 255)
@@ -232,7 +256,7 @@ class FootScanGUI:
                 "length_px": metrics.length_px,
             }
             length_txt = f"{metrics.length_mm:.1f} mm" if metrics.length_mm is not None else f"{metrics.length_px:.0f} px"
-            self._set_status(f"Heatmap listo. Largo aprox: {length_txt}. Podés marcar, medir o abrir 'Realces'.")
+            self._set_status(f"Heatmap listo (siempre con recorte de pie). Largo aprox: {length_txt}. Podés marcar, medir o abrir 'Realces'.")
             self._redraw()
         except Exception as exc:
             self._set_status("Error durante cálculo de heatmap.")
@@ -296,18 +320,7 @@ class FootScanGUI:
             messagebox.showinfo("Info", "Primero cargá una imagen.")
             return
         try:
-            prep = preprocess_image(self.image_bgr)
-            seg = segment_footprint(prep["denoised"])
-            x, y, w, h = seg.bbox
-            margin = max(20, int(max(w, h) * 0.06))
-            h_img, w_img = self.image_bgr.shape[:2]
-            x0, y0 = max(0, x - margin), max(0, y - margin)
-            x1, y1 = min(w_img, x + w + margin), min(h_img, y + h + margin)
-
-            roi = self.image_bgr[y0:y1, x0:x1].copy()
-            roi_mask = seg.mask[y0:y1, x0:x1]
-            white_bg = np.full_like(roi, 255)
-            white_bg[roi_mask > 0] = roi[roi_mask > 0]
+            white_bg, _ = self._prepare_noise_cropped(self.image_bgr)
 
             self.image_bgr = white_bg.copy()
             self.display_bgr = white_bg

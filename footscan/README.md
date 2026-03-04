@@ -134,8 +134,8 @@ La GUI está optimizada para pantallas 1024x768 (controles en doble fila y panel
 
 La GUI permite:
 - importar imagen o intentar escaneo,
-- generar heatmap de fondo (con mensajes de progreso 1/4..4/4 en barra de estado),
-- calcular/visualizar realces desde la GUI (botón **Realces**) con parámetros `Obj`, `Max mm` y `γ`,
+- generar heatmap de fondo (siempre con recorte automático del pie + mensajes de progreso en barra de estado),
+- calcular/visualizar realces desde la GUI (botón **Realces**) usando la imagen ya recortada del pie, con parámetros `Obj`, `Max mm` y `γ`,
 - marcar puntos manuales sobre una cuadrícula configurable en mm (modo **Marcar**),
 - trazar líneas de medida en modo **Medir** (distancia en px y mm) con etiqueta de medida (`largo_pie`, `ancho_antepie`, etc.),
 - mover la imagen con modo **Manito** (arrastrar con botón izquierdo) para trabajar con zoom,
