@@ -35,6 +35,9 @@ class FootScanGUI:
         self.measure_segments: List[Dict[str, Any]] = []
         self._pending_measure_start: Optional[Tuple[float, float]] = None
         self.metrics: Optional[Dict[str, Any]] = None
+        self.last_mask: Optional[np.ndarray] = None
+        self.last_contact_rel: Optional[np.ndarray] = None
+
 
         self.mode_var = tk.StringVar(value="mark")
         self.foot_var = tk.StringVar(value="right")
@@ -42,6 +45,9 @@ class FootScanGUI:
         self.show_grid_var = tk.BooleanVar(value=True)
         self.grid_mm_var = tk.StringVar(value="10")
         self.measure_name_var = tk.StringVar(value="largo_pie")
+        self.relief_target_var = tk.StringVar(value="0.82")
+        self.relief_max_mm_var = tk.StringVar(value="6.0")
+        self.relief_gamma_var = tk.StringVar(value="1.35")
 
         self.fit_scale = 1.0
         self.zoom_factor = 1.0
@@ -64,6 +70,7 @@ class FootScanGUI:
         ttk.Button(controls_top, text="Importar", command=self.on_import).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Escanear", command=self.on_scan).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Heatmap", command=self.on_analyze).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_top, text="Realces", command=self.on_relief_preview).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Auto-recorte", command=self.on_auto_crop_noise).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Importar medidas", command=self.on_import_measures).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Limpiar", command=self.on_clear_points).pack(side=tk.LEFT, padx=2)
@@ -82,6 +89,13 @@ class FootScanGUI:
 
         ttk.Label(controls_bottom, text="DPI:").pack(side=tk.LEFT, padx=(10, 4))
         ttk.Entry(controls_bottom, textvariable=self.dpi_var, width=6).pack(side=tk.LEFT)
+
+        ttk.Label(controls_bottom, text="Obj:").pack(side=tk.LEFT, padx=(8, 2))
+        ttk.Entry(controls_bottom, textvariable=self.relief_target_var, width=5).pack(side=tk.LEFT)
+        ttk.Label(controls_bottom, text="Max mm:").pack(side=tk.LEFT, padx=(6, 2))
+        ttk.Entry(controls_bottom, textvariable=self.relief_max_mm_var, width=5).pack(side=tk.LEFT)
+        ttk.Label(controls_bottom, text="γ:").pack(side=tk.LEFT, padx=(6, 2))
+        ttk.Entry(controls_bottom, textvariable=self.relief_gamma_var, width=4).pack(side=tk.LEFT)
 
         ttk.Label(controls_bottom, text="Modo:").pack(side=tk.LEFT, padx=(10, 4))
         ttk.Radiobutton(controls_bottom, text="Marcar", value="mark", variable=self.mode_var).pack(side=tk.LEFT)
@@ -156,6 +170,8 @@ class FootScanGUI:
             self.measure_segments.clear()
             self._pending_measure_start = None
             self.metrics = None
+            self.last_mask = None
+            self.last_contact_rel = None
             self._reset_view()
             self._set_status(f"Imagen cargada: {self.current_path.name}")
             self._refresh_points_box()
@@ -176,6 +192,8 @@ class FootScanGUI:
             self.measure_segments.clear()
             self._pending_measure_start = None
             self.metrics = None
+            self.last_mask = None
+            self.last_contact_rel = None
             self._reset_view()
             self._set_status(f"Escaneo cargado: {raw_path.name}")
             self._refresh_points_box()
@@ -203,6 +221,8 @@ class FootScanGUI:
             heat_bgr = cv2.applyColorMap(heat_u8, cv2.COLORMAP_TURBO)
             heat_bgr[seg.mask == 0] = (255, 255, 255)
             self.display_bgr = heat_bgr
+            self.last_mask = seg.mask.copy()
+            self.last_contact_rel = contact_rel.copy()
             self.metrics = {
                 "length_mm": metrics.length_mm,
                 "forefoot_mm": metrics.forefoot_width_mm,
@@ -212,11 +232,64 @@ class FootScanGUI:
                 "length_px": metrics.length_px,
             }
             length_txt = f"{metrics.length_mm:.1f} mm" if metrics.length_mm is not None else f"{metrics.length_px:.0f} px"
-            self._set_status(f"Heatmap listo. Largo aprox: {length_txt}. Ya podés marcar o medir.")
+            self._set_status(f"Heatmap listo. Largo aprox: {length_txt}. Podés marcar, medir o abrir 'Realces'.")
             self._redraw()
         except Exception as exc:
             self._set_status("Error durante cálculo de heatmap.")
             messagebox.showerror("Analyze", f"Error al generar heatmap: {exc}")
+
+    def _compute_relief_map(self) -> Tuple[np.ndarray, Dict[str, float]]:
+        if self.last_mask is None or self.last_contact_rel is None:
+            raise ValueError("Primero generá el heatmap para calcular realces.")
+
+        target = float(self.relief_target_var.get()) if self.relief_target_var.get().strip() else 0.82
+        max_mm = float(self.relief_max_mm_var.get()) if self.relief_max_mm_var.get().strip() else 6.0
+        gamma = float(self.relief_gamma_var.get()) if self.relief_gamma_var.get().strip() else 1.35
+
+        target = float(np.clip(target, 0.05, 1.0))
+        max_mm = float(max(0.5, max_mm))
+        gamma = float(np.clip(gamma, 0.4, 3.0))
+
+        relief_map = np.zeros_like(self.last_contact_rel, dtype=np.float32)
+        m = self.last_mask > 0
+        deficit = np.clip((target - self.last_contact_rel[m]) / max(target, 1e-6), 0.0, 1.0)
+        relief_map[m] = max_mm * np.power(deficit, gamma)
+
+        values = relief_map[m]
+        stats = {
+            "target": target,
+            "max_mm": max_mm,
+            "gamma": gamma,
+            "mean_mm": float(np.mean(values)) if values.size else 0.0,
+            "p90_mm": float(np.percentile(values, 90)) if values.size else 0.0,
+            "max_out_mm": float(np.max(values)) if values.size else 0.0,
+        }
+        return relief_map, stats
+
+
+    def on_relief_preview(self) -> None:
+        try:
+            self._set_status("Calculando realces sugeridos...")
+            relief_map, st = self._compute_relief_map()
+            max_ref = max(1e-6, st["max_mm"])
+            relief_u8 = (255.0 * np.clip(relief_map / max_ref, 0.0, 1.0)).astype("uint8")
+            relief_bgr = cv2.applyColorMap(relief_u8, cv2.COLORMAP_TURBO)
+            if self.last_mask is not None:
+                relief_bgr[self.last_mask == 0] = (255, 255, 255)
+            self.display_bgr = relief_bgr
+            self._redraw()
+            msg = (
+                "Realces calculados con modelo heurístico\n"
+                "- rojo (más contacto) => menor realce\n"
+                "- celeste (menos contacto) => mayor realce\n\n"
+                f"Parámetros: target={st['target']:.2f}, max={st['max_mm']:.2f} mm, gamma={st['gamma']:.2f}\n"
+                f"Resumen: media={st['mean_mm']:.2f} mm | p90={st['p90_mm']:.2f} mm | máx={st['max_out_mm']:.2f} mm"
+            )
+            self._set_status(f"Realces listos. Media {st['mean_mm']:.2f} mm | p90 {st['p90_mm']:.2f} mm.")
+            messagebox.showinfo("Realces sugeridos", msg)
+        except Exception as exc:
+            self._set_status("No se pudo calcular realces.")
+            messagebox.showerror("Realces", f"Error al calcular realces: {exc}")
 
     def on_auto_crop_noise(self) -> None:
         if self.image_bgr is None:
