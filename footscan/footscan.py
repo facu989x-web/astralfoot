@@ -305,6 +305,7 @@ def _estimate_relief_heights(
     metrics,
     target_contact_rel: float,
     max_relief_mm: float,
+    relief_gamma: float,
 ) -> Dict[str, Any]:
     """Estimate suggested relief heights (mm) from relative contact map.
 
@@ -317,16 +318,22 @@ def _estimate_relief_heights(
             "model": "contact_rel_linear",
             "target_contact_rel": target_contact_rel,
             "max_relief_mm": max_relief_mm,
+            "gamma": relief_gamma,
             "summary": {"mean_mm": 0.0, "p90_mm": 0.0, "max_mm": 0.0},
             "zones": {},
         }
 
     target = float(np.clip(target_contact_rel, 0.05, 1.0))
     max_mm = float(max(0.5, max_relief_mm))
+    gamma = float(np.clip(relief_gamma, 0.4, 3.0))
 
     rel = contact_rel.astype(np.float32)
     relief_map = np.zeros_like(rel, dtype=np.float32)
-    relief_map[mask > 0] = max_mm * np.clip((target - rel[mask > 0]) / max(target, 1e-6), 0.0, 1.0)
+    # Interpretación práctica para plantilla:
+    #  - contacto_rel alto (zonas "rojas")  -> pie más cerca del vidrio -> menor realce
+    #  - contacto_rel bajo (zonas "celestes") -> pie más en el aire -> mayor realce
+    deficit = np.clip((target - rel[mask > 0]) / max(target, 1e-6), 0.0, 1.0)
+    relief_map[mask > 0] = max_mm * np.power(deficit, gamma)
 
     heel_pt, toe_pt = metrics.length_endpoints_yx
     heel_xy = np.array([float(heel_pt[1]), float(heel_pt[0])], dtype=np.float32)
@@ -365,6 +372,7 @@ def _estimate_relief_heights(
         "model": "contact_rel_linear",
         "target_contact_rel": target,
         "max_relief_mm": max_mm,
+        "gamma": gamma,
         "relief_map_mm": relief_map,
         "summary": {
             "mean_mm": float(np.mean(relief_vals)),
@@ -373,7 +381,7 @@ def _estimate_relief_heights(
         },
         "zones": zones,
         "notes": [
-            "Estimación heurística para realces basada en contacto relativo.",
+            "Estimación heurística para realces basada en contacto relativo (rojo≈más contacto, celeste≈menos contacto).",
             "No reemplaza medición clínica de presión/altura 3D.",
         ],
     }
@@ -389,6 +397,7 @@ def _analyze_one(
     progress_fn: Optional[Callable[[str], None]] = None,
     relief_target_contact: float = 0.82,
     relief_max_mm: float = 6.0,
+    relief_gamma: float = 1.35,
 ) -> Dict[str, Path]:
     import cv2
     from footscan.metrics import compute_metrics
@@ -469,6 +478,7 @@ def _analyze_one(
         metrics,
         target_contact_rel=relief_target_contact,
         max_relief_mm=relief_max_mm,
+        relief_gamma=relief_gamma,
     )
     relief_map_mm = findings["relief"].pop("relief_map_mm", None)
     relief_max_for_map = max(1e-6, float(findings["relief"].get("max_relief_mm", relief_max_mm)))
@@ -535,6 +545,7 @@ def _analyze_one(
         "artifact_file": str(relief_path),
         "target_contact_rel": float(relief_target_contact),
         "max_relief_mm": float(relief_max_mm),
+        "gamma": float(relief_gamma),
     }
     results["metadata"]["adaptive_cleanup"] = {
         "garbage_ratio": metrics_debug.get("garbage_ratio", 0.0),
@@ -603,6 +614,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_p.add_argument("--debug", action="store_true")
     analyze_p.add_argument("--relief-target-contact", type=float, default=0.82, help="Contacto relativo objetivo para estimar altura de realce (0-1).")
     analyze_p.add_argument("--relief-max-mm", type=float, default=6.0, help="Altura máxima de realce sugerida en mm.")
+    analyze_p.add_argument("--relief-gamma", type=float, default=1.35, help="Curvatura de la respuesta de realce (mayor valor => menos agresivo en déficit leve).")
 
     batch_p = sub.add_parser("batch", help="Procesa todas las imágenes de un folder.")
     batch_p.add_argument("--input", type=str, required=True, help="Carpeta de imágenes.")
@@ -613,6 +625,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch_p.add_argument("--debug", action="store_true")
     batch_p.add_argument("--relief-target-contact", type=float, default=0.82, help="Contacto relativo objetivo para estimar altura de realce (0-1).")
     batch_p.add_argument("--relief-max-mm", type=float, default=6.0, help="Altura máxima de realce sugerida en mm.")
+    batch_p.add_argument("--relief-gamma", type=float, default=1.35, help="Curvatura de la respuesta de realce (mayor valor => menos agresivo en déficit leve).")
 
     cal_p = sub.add_parser("calibrate", help="Crea perfil de calibración mm/px usando largo real del pie.")
     cal_p.add_argument("--input", type=str, required=True)
@@ -757,6 +770,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             _progress,
             args.relief_target_contact,
             args.relief_max_mm,
+            args.relief_gamma,
         )
         print("Análisis completado:")
         for k, v in outputs.items():
@@ -807,6 +821,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 _progress,
                 args.relief_target_contact,
                 args.relief_max_mm,
+                args.relief_gamma,
             )
 
             result_json = outputs.get("json")

@@ -86,7 +86,7 @@ python footscan.py scan --input "samples/dummy_foot.png" --dpi 300 --output_dir 
 ```bash
 python footscan.py analyze --input "samples/dummy_foot.png" --output_dir outputs --dpi 300 --foot auto --debug
 # ajuste opcional de realces (heurístico)
-python footscan.py analyze --input "samples/dummy_foot.png" --output_dir outputs --relief-target-contact 0.84 --relief-max-mm 5.0
+python footscan.py analyze --input "samples/dummy_foot.png" --output_dir outputs --relief-target-contact 0.84 --relief-max-mm 5.0 --relief-gamma 1.35
 ```
 
 Con perfil de calibración (recomendado para precisión real por escáner):
@@ -186,6 +186,7 @@ Para una entrada `dummy_foot.png` se generan:
 - El heatmap es relativo a la intensidad de la huella escaneada (más claro en el escaneo tiende a mayor contacto relativo), no una medición de presión certificada.
 - La máscara de huella se rellena sobre el contorno principal para evitar "huellas huecas" (contorno con interior negro) que distorsionan el heatmap y el cálculo de área.
 - Se aplica recorte automático al bounding box del pie (con margen) para reducir ruido por fondo, ropa o zonas escaneadas sin contacto.
-- `findings.relief` estima altura de realce en mm (modelo lineal sobre `contact_rel`): menor contacto relativo => mayor altura sugerida, con tope configurable (`--relief-max-mm`).
+- `findings.relief` estima altura de realce en mm desde `contact_rel` con esta idea práctica: más rojo (más contacto) => menor realce; más celeste (menos contacto) => mayor realce.
+- Fórmula base usada: `deficit = clamp((target_contact_rel - contact_rel) / target_contact_rel, 0..1)` y `realce_mm = max_relief_mm * deficit^gamma` (controlado por `--relief-target-contact`, `--relief-max-mm`, `--relief-gamma`).
 - `metadata.relief_model.artifact_file` guarda la ruta del `*_relief.png` generado para revisión visual rápida.
 - `results.json` incluye `metadata.adaptive_cleanup` con indicadores de detección de basura (`garbage_ratio`), agresividad de recorte (`trim_aggressiveness`), recuperación anti sobre-recorte (`trim_recovery_applied`/`trim_recovery_level`) y pisos de plausibilidad usados en mediopié (`mid_plausible_floor_px`).
