@@ -262,6 +262,29 @@ class FootScanGUI:
             self._set_status("Error durante cálculo de heatmap.")
             messagebox.showerror("Analyze", f"Error al generar heatmap: {exc}")
 
+    def _ensure_heatmap_ready_for_relief(self) -> bool:
+        """Ensure relief inputs exist; optionally trigger heatmap generation."""
+        if self.last_mask is not None and self.last_contact_rel is not None:
+            return True
+        if self.image_bgr is None:
+            messagebox.showinfo("Realces", "Primero cargá una imagen.")
+            return False
+
+        go = messagebox.askyesno(
+            "Realces",
+            "Todavía no hay heatmap calculado para esta imagen.\n\n"
+            "¿Querés generarlo ahora con recorte automático del pie para continuar con Realces?",
+        )
+        if not go:
+            self._set_status("Realces cancelado: faltaba heatmap previo.")
+            return False
+
+        self.on_analyze()
+        ready = self.last_mask is not None and self.last_contact_rel is not None
+        if not ready:
+            self._set_status("No se pudo preparar heatmap para calcular realces.")
+        return ready
+
     def _compute_relief_map(self) -> Tuple[np.ndarray, Dict[str, float]]:
         if self.last_mask is None or self.last_contact_rel is None:
             raise ValueError("Primero generá el heatmap para calcular realces.")
@@ -293,6 +316,8 @@ class FootScanGUI:
 
     def on_relief_preview(self) -> None:
         try:
+            if not self._ensure_heatmap_ready_for_relief():
+                return
             self._set_status("Calculando realces sugeridos...")
             relief_map, st = self._compute_relief_map()
             max_ref = max(1e-6, st["max_mm"])
@@ -309,7 +334,9 @@ class FootScanGUI:
                 f"Parámetros: target={st['target']:.2f}, max={st['max_mm']:.2f} mm, gamma={st['gamma']:.2f}\n"
                 f"Resumen: media={st['mean_mm']:.2f} mm | p90={st['p90_mm']:.2f} mm | máx={st['max_out_mm']:.2f} mm"
             )
-            self._set_status(f"Realces listos. Media {st['mean_mm']:.2f} mm | p90 {st['p90_mm']:.2f} mm.")
+            self._set_status(
+                f"Realces listos (sobre pie recortado). Media {st['mean_mm']:.2f} mm | p90 {st['p90_mm']:.2f} mm."
+            )
             messagebox.showinfo("Realces sugeridos", msg)
         except Exception as exc:
             self._set_status("No se pudo calcular realces.")
