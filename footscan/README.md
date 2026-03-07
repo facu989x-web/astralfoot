@@ -136,6 +136,7 @@ La GUI permite:
 - importar imagen o intentar escaneo,
 - generar heatmap de fondo (siempre con recorte automático del pie + mensajes de progreso en barra de estado),
 - calcular/visualizar realces desde la GUI (botón **Realces**) usando la imagen ya recortada del pie, con parámetros `Obj`, `Max mm` y `γ`; si falta heatmap, la GUI ofrece generarlo automáticamente,
+- exportar realces GUI (botón **Guardar realces**) como PNG + JSON con parámetros y resumen,
 - marcar puntos manuales sobre una cuadrícula configurable en mm (modo **Marcar**),
 - trazar líneas de medida en modo **Medir** (distancia en px y mm) con etiqueta de medida (`largo_pie`, `ancho_antepie`, etc.),
 - mover la imagen con modo **Manito** (arrastrar con botón izquierdo) para trabajar con zoom,

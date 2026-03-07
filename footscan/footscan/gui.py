@@ -37,6 +37,8 @@ class FootScanGUI:
         self.metrics: Optional[Dict[str, Any]] = None
         self.last_mask: Optional[np.ndarray] = None
         self.last_contact_rel: Optional[np.ndarray] = None
+        self.last_relief_map: Optional[np.ndarray] = None
+        self.last_relief_stats: Optional[Dict[str, float]] = None
 
 
         self.mode_var = tk.StringVar(value="mark")
@@ -71,6 +73,7 @@ class FootScanGUI:
         ttk.Button(controls_top, text="Escanear", command=self.on_scan).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Heatmap", command=self.on_analyze).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Realces", command=self.on_relief_preview).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_top, text="Guardar realces", command=self.on_export_relief).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Auto-recorte", command=self.on_auto_crop_noise).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Importar medidas", command=self.on_import_measures).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_top, text="Limpiar", command=self.on_clear_points).pack(side=tk.LEFT, padx=2)
@@ -172,6 +175,8 @@ class FootScanGUI:
             self.metrics = None
             self.last_mask = None
             self.last_contact_rel = None
+            self.last_relief_map = None
+            self.last_relief_stats = None
             self._reset_view()
             self._set_status(f"Imagen cargada: {self.current_path.name}")
             self._refresh_points_box()
@@ -194,6 +199,8 @@ class FootScanGUI:
             self.metrics = None
             self.last_mask = None
             self.last_contact_rel = None
+            self.last_relief_map = None
+            self.last_relief_stats = None
             self._reset_view()
             self._set_status(f"Escaneo cargado: {raw_path.name}")
             self._refresh_points_box()
@@ -247,6 +254,8 @@ class FootScanGUI:
             self.display_bgr = heat_bgr
             self.last_mask = seg.mask.copy()
             self.last_contact_rel = contact_rel.copy()
+            self.last_relief_map = None
+            self.last_relief_stats = None
             self.metrics = {
                 "length_mm": metrics.length_mm,
                 "forefoot_mm": metrics.forefoot_width_mm,
@@ -326,6 +335,8 @@ class FootScanGUI:
             if self.last_mask is not None:
                 relief_bgr[self.last_mask == 0] = (255, 255, 255)
             self.display_bgr = relief_bgr
+            self.last_relief_map = relief_map.copy()
+            self.last_relief_stats = dict(st)
             self._redraw()
             msg = (
                 "Realces calculados con modelo heurístico\n"
@@ -341,6 +352,70 @@ class FootScanGUI:
         except Exception as exc:
             self._set_status("No se pudo calcular realces.")
             messagebox.showerror("Realces", f"Error al calcular realces: {exc}")
+
+    def on_export_relief(self) -> None:
+        try:
+            if self.last_relief_map is None or self.last_relief_stats is None:
+                go = messagebox.askyesno(
+                    "Guardar realces",
+                    "No hay un cálculo de realces disponible.\n\n¿Querés calcularlo ahora?",
+                )
+                if not go:
+                    self._set_status("Exportación de realces cancelada.")
+                    return
+                self.on_relief_preview()
+                if self.last_relief_map is None or self.last_relief_stats is None:
+                    return
+
+            if self.current_path is not None:
+                default_dir = str(self.current_path.parent)
+                default_name = f"{self.current_path.stem}_gui_relief"
+            else:
+                default_dir = str(Path.cwd())
+                default_name = "gui_relief"
+
+            out_img = filedialog.asksaveasfilename(
+                title="Guardar mapa de realces",
+                defaultextension=".png",
+                initialdir=default_dir,
+                initialfile=default_name + ".png",
+                filetypes=[("PNG", "*.png")],
+            )
+            if not out_img:
+                self._set_status("Exportación de realces cancelada.")
+                return
+
+            st = self.last_relief_stats
+            max_ref = max(1e-6, float(st.get("max_mm", 1.0)))
+            relief_u8 = (255.0 * np.clip(self.last_relief_map / max_ref, 0.0, 1.0)).astype("uint8")
+            relief_bgr = cv2.applyColorMap(relief_u8, cv2.COLORMAP_TURBO)
+            if self.last_mask is not None:
+                relief_bgr[self.last_mask == 0] = (255, 255, 255)
+
+            out_img_path = Path(out_img)
+            save_image(out_img_path, relief_bgr)
+
+            stats_payload = {
+                "timestamp": timestamp_iso(),
+                "image_file": str(self.current_path) if self.current_path else None,
+                "target_contact_rel": float(st.get("target", 0.82)),
+                "max_relief_mm": float(st.get("max_mm", 6.0)),
+                "gamma": float(st.get("gamma", 1.35)),
+                "summary": {
+                    "mean_mm": float(st.get("mean_mm", 0.0)),
+                    "p90_mm": float(st.get("p90_mm", 0.0)),
+                    "max_mm": float(st.get("max_out_mm", 0.0)),
+                },
+                "note": "Realce heurístico GUI sobre imagen recortada del pie.",
+            }
+            out_json = out_img_path.with_suffix(".json")
+            save_json(out_json, stats_payload)
+
+            self._set_status(f"Realces exportados: {out_img_path.name} (+ {out_json.name})")
+            messagebox.showinfo("Guardar realces", f"Exportado:\n- {out_img_path.name}\n- {out_json.name}")
+        except Exception as exc:
+            self._set_status("No se pudo exportar realces.")
+            messagebox.showerror("Guardar realces", f"Error al exportar realces: {exc}")
 
     def on_auto_crop_noise(self) -> None:
         if self.image_bgr is None:
